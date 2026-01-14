@@ -62,7 +62,15 @@ const initialTemplate = {
     ]
   },
   footer: {
-    // Bank details removed as per request
+    bankDetails: {
+        visible: true,
+        title: "Bank Details",
+        fields: [
+            { key: "bank", label: "Bank", value: "HDFC Bank", visible: true },
+            { key: "account", label: "Acct No", value: "6711880000", visible: true },
+            { key: "ifsc", label: "IFSC", value: "HDFC000123", visible: true }
+        ]
+    },
     termsAndConditions: { visible: true, content: "Terms & Conditions applied." },
     signatureLabel: "Authorized Signatory"
   }

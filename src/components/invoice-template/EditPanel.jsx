@@ -223,6 +223,7 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
            
            <div className="grid gap-2">
              <DndContext 
+                id="dnd-invoiceMeta"
                 sensors={sensors} 
                 collisionDetection={closestCenter}
                 onDragEnd={(e) => handleDragEnd(e, 'invoiceMeta')}
@@ -461,6 +462,7 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
            
            <div className="grid gap-2">
              <DndContext 
+                id="dnd-companyDetails"
                 sensors={sensors}
                 collisionDetection={closestCenter}
                 onDragEnd={(e) => handleDragEnd(e, 'companyDetails')}
@@ -531,6 +533,7 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
 
        <div className="space-y-2 pb-4">
          <DndContext 
+            id="dnd-table"
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={(e) => handleDragEnd(e, 'table')}
@@ -707,6 +710,7 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                
                <div className="grid gap-2">
                  <DndContext 
+                    id="dnd-billing"
                     sensors={sensors}
                     collisionDetection={closestCenter}
                     onDragEnd={(e) => handleDragEnd(e, 'customerDetails', 'billing')}
@@ -812,6 +816,7 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                
                <div className="grid gap-2">
                  <DndContext 
+                    id="dnd-shipping"
                     sensors={sensors}
                     collisionDetection={closestCenter}
                     onDragEnd={(e) => handleDragEnd(e, 'customerDetails', 'shipping')}
@@ -903,6 +908,7 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
            
            <div className="space-y-3">
              <DndContext 
+                id="dnd-summary"
                 sensors={sensors}
                 collisionDetection={closestCenter}
                 onDragEnd={(e) => handleDragEnd(e, 'summary')}
@@ -993,6 +999,141 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
        </div>
     </div>
   );
+
+  const renderFooter = () => (
+    <div className="space-y-6">
+       {/* Signature */}
+       <div className="p-4 bg-card border rounded-lg shadow-sm space-y-4">
+           <Label className="text-base font-semibold">Signature</Label>
+           <div >
+               <Label className="text-sm">Label</Label>
+               <Input 
+                   value={template.footer.signatureLabel} 
+                   onChange={e => {
+                       const newT = {...template};
+                       newT.footer.signatureLabel = e.target.value;
+                       setTemplate(newT);
+                   }}
+               />
+           </div>
+       </div>
+
+       {/* Bank Details */}
+       <div className="p-4 bg-card border rounded-lg shadow-sm space-y-4">
+           <div className="flex items-center justify-between">
+             <Label className="text-base font-semibold">Bank Details</Label>
+             <Switch 
+                checked={template.footer.bankDetails?.visible ?? true}
+                onCheckedChange={(checked) => {
+                    const newT = {...template};
+                    if(!newT.footer.bankDetails) newT.footer.bankDetails = { fields: [] };
+                    newT.footer.bankDetails.visible = checked;
+                    setTemplate(newT);
+                }}
+             />
+           </div>
+           
+           {template.footer.bankDetails?.visible && (
+             <div className="space-y-4 pt-2">
+                 <div className="space-y-2">
+                     <Label className="text-sm">Section Title</Label>
+                     <Input 
+                        value={template.footer.bankDetails.title || 'Bank Details'} 
+                        onChange={e => {
+                            const newT = {...template};
+                            newT.footer.bankDetails.title = e.target.value;
+                            setTemplate(newT);
+                        }}
+                     />
+                 </div>
+
+                 <div>
+                   <div className="flex items-center justify-between mb-2">
+                     <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Fields</h3>
+                     <Button 
+                        onClick={() => {
+                            const newT = {...template};
+                            if (!newT.footer.bankDetails.fields) newT.footer.bankDetails.fields = [];
+                            newT.footer.bankDetails.fields.push({ key: `custom_${Date.now()}`, label: "Label", value: "Value", visible: true });
+                            setTemplate(newT);
+                        }}
+                        size="sm" 
+                        variant="ghost"
+                        className="h-6 gap-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                     >
+                        <Plus className="w-3 h-3" /> Add
+                     </Button>
+                   </div>
+                   
+                   <div className="grid gap-2">
+                     <DndContext 
+                        id="dnd-footer-bank"
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={(e) => handleDragEnd(e, 'footer', 'bankDetails')}
+                     >
+                     <SortableContext 
+                        items={template.footer.bankDetails.fields.map(f => f.key)}
+                        strategy={verticalListSortingStrategy}
+                     >
+                     {template.footer.bankDetails.fields.map((field, idx) => (
+                       <SortableRow key={field.key} id={field.key} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
+                         {(listeners, attributes) => (
+                         <>
+                         <div {...listeners} {...attributes}>
+                            <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2 outline-none" />
+                         </div>
+                         <div className="flex-1 space-y-2">
+                             <div className="flex items-center justify-between gap-2">
+                                <Input 
+                                    value={field.label} 
+                                    onChange={(e) => {
+                                        const newT = {...template};
+                                        newT.footer.bankDetails.fields[idx].label = e.target.value;
+                                        setTemplate(newT);
+                                    }}
+                                    className="h-7 text-xs font-semibold"
+                                    placeholder="Label"
+                                />
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50 shrink-0"
+                                    onClick={() => {
+                                        const newT = {...template};
+                                        newT.footer.bankDetails.fields.splice(idx, 1);
+                                        setTemplate(newT);
+                                    }}
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                </Button>
+                             </div>
+                             <div>
+                                <Input 
+                                    value={field.value} 
+                                    onChange={(e) => {
+                                        const newT = {...template};
+                                        newT.footer.bankDetails.fields[idx].value = e.target.value;
+                                        setTemplate(newT);
+                                    }} 
+                                    className="h-7 text-xs"
+                                    placeholder="Value"
+                                />
+                            </div>
+                         </div>
+                         </>
+                         )}
+                       </SortableRow>
+                     ))}
+                     </SortableContext>
+                     </DndContext>
+                   </div>
+                 </div>
+             </div>
+           )}
+       </div>
+    </div>
+  );
   
   return (
     <div className="flex flex-col h-full relative">
@@ -1002,8 +1143,9 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
         {activeSection === 'customerDetails' && renderCustomerDetails()}
         {activeSection === 'table' && renderTable()}
         {activeSection === 'summary' && renderSummary()}
+        {activeSection === 'footer' && renderFooter()}
         
-        {!['companyDetails', 'invoiceMeta', 'table', 'customerDetails', 'summary'].includes(activeSection) && (
+        {!['companyDetails', 'invoiceMeta', 'table', 'customerDetails', 'summary', 'footer'].includes(activeSection) && (
             <div className="flex flex-col items-center justify-center h-[50vh] text-center space-y-4">
                 <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center">
                 <span className="text-2xl">🚧</span>

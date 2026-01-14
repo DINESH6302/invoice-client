@@ -1,4 +1,15 @@
 import React from 'react';
+import { ToWords } from 'to-words';
+
+const toWords = new ToWords({
+  localeCode: 'en-IN',
+  converterOptions: {
+    currency: true,
+    ignoreDecimal: false,
+    ignoreZeroCurrency: false,
+    doNotAddOnly: false,
+  }
+});
 
 export default function TemplatePreview({ template }) {
   // Calculate total visible width percentage
@@ -37,9 +48,26 @@ export default function TemplatePreview({ template }) {
       return `${(pct * widthScale / 100) * standardContentWidthMm}mm`; 
   };
   
+  // Dummy Data for Preview
+  const PREVIEW_ROWS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+  // Calculate Column Sum helper
+  const calculateColumnSum = (colKey) => {
+       return PREVIEW_ROWS.reduce((acc, row) => {
+            let val = 0;
+            if (colKey === 'quantity') val = row * 10;
+            else if (colKey === 'price') val = 453.00;
+            else if (colKey === 'total') val = row * 10 * 453;
+            return acc + val;
+       }, 0);
+  };
+
+  // Dynamic Grand Total Calculation (matches 'Total' column sum)
+  const grandTotal = calculateColumnSum('total');
+
   return (
     <div 
-        className="min-h-[297mm] bg-white shadow-sm p-12 text-sm relative text-black text-left border overflow-hidden"
+        className="min-h-[297mm] bg-white shadow-sm p-12 text-sm relative text-black text-left border overflow-hidden flex flex-col"
         style={{ width: `${pageWidthMm}mm` }}
     >
       {/* 1. Header Section */}
@@ -170,9 +198,7 @@ export default function TemplatePreview({ template }) {
            )})}
         </div>
         {/* Dummy Rows */}
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] 
-        // 12,13, 14, 15, 16, 17, 18, 19, 20]
-        .map((row) => (
+        {PREVIEW_ROWS.map((row) => (
            <div key={row} className="flex border-b border-slate-400 last:border-b-0 text-slate-700 text-sm items-stretch">
               {template.table.columns.map((col, idx) => {
                  if (!col.visible) return null;
@@ -207,35 +233,56 @@ export default function TemplatePreview({ template }) {
         ))}
       </div>
 
-      {/* 4. Totals */}
-      <div className="flex justify-end mb-16">
+      {/* 4. Totals & Amount In Words */}
+      <div className="flex justify-between items-start gap-8">
+         {/* Left Side: Amount In Words & Bank Details */}
+         <div className="flex-1 max-w-[50%] pt-2 space-y-6">
+            <div>
+                <h4 className="font-bold text-slate-800 mb-2 text-sm uppercase">Total Amount In Words</h4>
+                <div className="text-slate-600 text-sm p-3 bg-slate-50 rounded border border-slate-200 w-full">
+                    <p className="capitalize italic">{toWords.convert(grandTotal, { currency: true })}</p>
+                </div>
+            </div>
+
+            {/* Bank Details */}
+            {template.footer?.bankDetails?.visible && (
+                <div>
+                    <h4 className="font-bold text-slate-800 mb-2 text-sm uppercase">{template.footer.bankDetails.title || 'Bank Details'}</h4>
+                    <div className="text-slate-600 text-sm p-3 bg-slate-50 rounded border border-slate-200 w-full">
+                        {template.footer.bankDetails.fields?.map((field, idx) => (
+                             field.visible && (
+                                <div key={idx} className="flex justify-between py-0.5">
+                                    <span className="font-semibold w-24 shrink-0">{field.label}:</span> 
+                                    <span className="text-right flex-1">{field.value}</span>
+                                </div>
+                             )
+                        ))}
+                    </div>
+                </div>
+            )}
+         </div>
+
+         {/* Right Side: Totals */}
          <div className="w-1/2 bg-slate-50 p-6 rounded-lg border border-slate-100">
-            {template.summary.fields.map(field => {
+            {[
+                ...template.summary.fields.filter(f => f.key !== 'grand_total'),
+                ...template.summary.fields.filter(f => f.key === 'grand_total')
+            ].map(field => {
                 if(!field.visible) return null;
 
                 // Calculate value based on sourceColumn if present
                 let displayValue = '--';
                 if (field.sourceColumn) {
-                    const sum = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].reduce((acc, row) => {
-                        let val = 0;
-                        // Imitate the logic used in the table rendering
-                        if (field.sourceColumn === 'quantity') val = row * 10;
-                        else if (field.sourceColumn === 'price') val = 450.00;
-                        else if (field.sourceColumn === 'total') val = row * 10 * 450;
-                        // For other columns, we can't easily guess the numeric value without real data, 
-                        // but this covers the demo requirement.
-                        return acc + val;
-                    }, 0);
+                    const sum = calculateColumnSum(field.sourceColumn);
                     
                     if (field.sourceColumn === 'quantity') displayValue = sum;
                     else displayValue = '₹ ' + sum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 } else if (field.key === 'grand_total') {
-                     // hardcode for demo if not mapped (though usually it should be mapped to total)
-                     displayValue = '₹ 2,97,000.00'; 
+                     displayValue = '₹ ' + grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 }
 
                 return (
-               <div key={field.key} className={`flex justify-between py-2 ${field.bold ? 'font-bold text-xl border-t-2 border-slate-300 mt-2 pt-4 text-slate-900' : 'text-slate-600'}`}>
+               <div key={field.key} className={`flex justify-between py-2 ${field.bold ? 'font-bold text-xl mt-4 text-slate-900' : 'text-slate-600'}`}>
                   <span>{field.label}</span>
                   <span className={field.bold ? '' : 'font-medium'}>{displayValue}</span>
                </div>
@@ -244,19 +291,9 @@ export default function TemplatePreview({ template }) {
       </div>
       
       {/* 5. Footer */}
-      <div className="absolute bottom-12 left-12 right-12">
-         {/* Bank Details Removed as requested */}
-         <div className="flex justify-between items-end">
-            <div className="w-[60%]">
-                <h4 className="font-bold text-slate-800 mb-2 text-sm uppercase">Bank Details</h4>
-                <div className="text-slate-600 text-sm p-3 bg-slate-50 rounded border border-slate-200 inline-block pr-12">
-                    <p>Bank: HDFC Bank</p>
-                    <p>Acct: 6711880000</p>
-                    <p>IFSC: HDFC000123</p>
-                </div>
-            </div>
+      <div className="mt-8 pt-6 grow-0">
+         <div className="flex justify-end items-end">
             <div className="text-center">
-                {/* <div className="h-16 mb-2"></div> */}
                 <div className="border-t border-slate-400 w-48 pt-3 font-bold text-slate-700">{template.footer.signatureLabel}</div>
             </div>
          </div>
