@@ -5,8 +5,87 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Trash2, Plus, GripVertical, Upload, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+function SortableRow({ id, children, className }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : 'auto',
+    position: 'relative',
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={className}>
+      {children(listeners, attributes)}
+    </div>
+  );
+}
 
 export default function EditPanel({ activeSection, template, setTemplate }) {
+  
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event, listKey, subKey = null) => {
+    const { active, over } = event;
+    if (active.id !== over?.id) {
+        const newTemplate = JSON.parse(JSON.stringify(template));
+        let list = [];
+        if (subKey) {
+            // Nested like customerDetails.billing.fields
+            list = newTemplate[listKey][subKey].fields;
+        } else if (listKey === 'table') {
+            list = newTemplate.table.columns;
+        } else {
+            // Standard sections like companyDetails.fields
+            list = newTemplate[listKey].fields;
+        }
+
+        const oldIndex = list.findIndex((item) => item.key === active.id);
+        const newIndex = list.findIndex((item) => item.key === over.id);
+        
+        const reorderedList = arrayMove(list, oldIndex, newIndex);
+        
+        if (subKey) {
+            newTemplate[listKey][subKey].fields = reorderedList;
+        } else if (listKey === 'table') {
+            newTemplate.table.columns = reorderedList;
+        } else {
+            newTemplate[listKey].fields = reorderedList;
+        }
+        
+        setTemplate(newTemplate);
+    }
+  };
   
   const [expandedSubCols, setExpandedSubCols] = useState({});
   const lastColumnRef = useRef(null);
@@ -143,9 +222,22 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
            </div>
            
            <div className="grid gap-2">
+             <DndContext 
+                sensors={sensors} 
+                collisionDetection={closestCenter}
+                onDragEnd={(e) => handleDragEnd(e, 'invoiceMeta')}
+             >
+             <SortableContext 
+                items={template.invoiceMeta.fields.filter(f => f.key !== 'invoice_no' && f.key !== 'date').map(f => f.key)}
+                strategy={verticalListSortingStrategy}
+             >
              {template.invoiceMeta.fields.filter(f => f.key !== 'invoice_no' && f.key !== 'date').map((field, idx) => (
-               <div key={idx} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
-                 <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2" />
+               <SortableRow key={field.key} id={field.key} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
+                 {(listeners, attributes) => (
+                 <>
+                 <div {...listeners} {...attributes}>
+                    <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2 outline-none" />
+                 </div>
                  
                  <div className="flex-1 space-y-2">
                      <div className="flex items-center justify-between">
@@ -184,8 +276,12 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                         />
                     </div>
                  </div>
-               </div>
+                 </>
+                 )}
+               </SortableRow>
              ))}
+             </SortableContext>
+             </DndContext>
            </div>
        </div>
     </div>
@@ -364,9 +460,22 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
            </div>
            
            <div className="grid gap-2">
+             <DndContext 
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={(e) => handleDragEnd(e, 'companyDetails')}
+             >
+             <SortableContext 
+                items={template.companyDetails.fields.map(f => f.key)}
+                strategy={verticalListSortingStrategy}
+             >
              {template.companyDetails.fields.map((field, idx) => (
-               <div key={idx} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
-                 <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2" />
+               <SortableRow key={field.key} id={field.key} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
+                 {(listeners, attributes) => (
+                 <>
+                 <div {...listeners} {...attributes}>
+                    <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2 outline-none" />
+                 </div>
                  
                  <div className="flex-1 space-y-2">
                      <div className="flex items-center justify-between">
@@ -403,8 +512,12 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                         />
                     </div>
                  </div>
-               </div>
+                 </>
+                 )}
+               </SortableRow>
              ))}
+             </SortableContext>
+             </DndContext>
            </div>
        </div>
     </div>
@@ -417,14 +530,32 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
        </div>
 
        <div className="space-y-2 pb-4">
+         <DndContext 
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={(e) => handleDragEnd(e, 'table')}
+         >
+         <SortableContext 
+            items={template.table.columns.map(c => c.key)}
+            strategy={verticalListSortingStrategy}
+         >
          {template.table.columns.map((col, idx) => (
-           <div 
-             key={idx} 
-             className="p-3 bg-card border rounded-md shadow-sm transition-all"
-             ref={idx === template.table.columns.length - 1 ? lastColumnRef : null}
+           <SortableRow 
+             key={col.key} 
+             id={col.key} 
+             className="p-3 bg-card border rounded-md shadow-sm transition-all relative"
            >
+             {(listeners, attributes) => (
+             <>
+             {idx === template.table.columns.length - 1 && <div ref={lastColumnRef} className="absolute top-0 left-0 w-px h-px opacity-0" />}
              <div className="flex items-center gap-3 mb-2">
-                <div className="w-5 h-5 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-[10px] font-medium border">{idx + 1}</div>
+                <div 
+                    className="w-5 h-5 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-[10px] font-medium border cursor-grab active:cursor-grabbing hover:bg-slate-200"
+                    {...listeners} {...attributes}
+                    title="Drag to reorder"
+                >
+                    {idx + 1}
+                </div>
                 <div className="flex-1 font-medium text-sm">{col.key.toUpperCase()}</div>
                 <div className="flex items-center gap-1">
                     {idx > 4 && ( // Assuming first 5 are standard
@@ -527,8 +658,12 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                     )}
                 </div>
             )}
-           </div>
+           </>
+           )}
+           </SortableRow>
          ))}
+         </SortableContext>
+         </DndContext>
        </div>
     </div>
   );
@@ -571,9 +706,22 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                </div>
                
                <div className="grid gap-2">
+                 <DndContext 
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(e) => handleDragEnd(e, 'customerDetails', 'billing')}
+                 >
+                 <SortableContext 
+                    items={template.customerDetails.billing.fields.map(f => f.key)}
+                    strategy={verticalListSortingStrategy}
+                 >
                  {template.customerDetails.billing.fields.map((field, idx) => (
-                   <div key={idx} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
-                     <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2" />
+                   <SortableRow key={field.key} id={field.key} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
+                     {(listeners, attributes) => (
+                     <>
+                     <div {...listeners} {...attributes}>
+                        <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2 outline-none" />
+                     </div>
                      <div className="flex-1 space-y-2">
                          <div className="flex items-center justify-between">
                             <Label className="font-semibold text-gray-700 capitalize text-sm">
@@ -617,8 +765,12 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                             />
                         </div>
                      </div>
-                   </div>
+                     </>
+                     )}
+                   </SortableRow>
                  ))}
+                 </SortableContext>
+                 </DndContext>
                </div>
            </div>
         </div>
@@ -659,9 +811,22 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                </div>
                
                <div className="grid gap-2">
+                 <DndContext 
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(e) => handleDragEnd(e, 'customerDetails', 'shipping')}
+                 >
+                 <SortableContext 
+                    items={template.customerDetails.shipping.fields.map(f => f.key)}
+                    strategy={verticalListSortingStrategy}
+                 >
                  {template.customerDetails.shipping.fields.map((field, idx) => (
-                   <div key={idx} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
-                     <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2" />
+                   <SortableRow key={field.key} id={field.key} className="group p-3 bg-card border rounded-md shadow-sm hover:shadow-md transition-all flex items-start gap-3">
+                     {(listeners, attributes) => (
+                     <>
+                     <div {...listeners} {...attributes}>
+                        <GripVertical className="w-4 h-4 text-gray-300 cursor-move mt-2 outline-none" />
+                     </div>
                      <div className="flex-1 space-y-2">
                          <div className="flex items-center justify-between">
                             <Label className="font-semibold text-gray-700 capitalize text-sm">
@@ -705,8 +870,12 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                             />
                         </div>
                      </div>
-                   </div>
+                     </>
+                     )}
+                   </SortableRow>
                  ))}
+                 </SortableContext>
+                 </DndContext>
                </div>
            </div>
         </div>
@@ -733,11 +902,24 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
            </div>
            
            <div className="space-y-3">
+             <DndContext 
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={(e) => handleDragEnd(e, 'summary')}
+             >
+             <SortableContext 
+                items={template.summary.fields.map(f => f.key)}
+                strategy={verticalListSortingStrategy}
+             >
              {template.summary.fields.map((field, idx) => (
-               <div key={idx} className="group p-4 bg-card border rounded-md shadow-sm hover:shadow-md transition-all space-y-3">
+               <SortableRow key={field.key} id={field.key} className="group p-4 bg-card border rounded-md shadow-sm hover:shadow-md transition-all space-y-3">
+                 {(listeners, attributes) => (
+                 <>
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <GripVertical className="w-4 h-4 text-gray-300 cursor-move" />
+                        <div {...listeners} {...attributes}>
+                            <GripVertical className="w-4 h-4 text-gray-300 cursor-move outline-none" />
+                        </div>
                         <span className="font-semibold text-gray-700 text-sm">{field.label || 'Field'}</span>
                     </div>
                     
@@ -801,8 +983,12 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                         className="scale-75 origin-right"
                     />
                  </div>
-               </div>
+                 </>
+                 )}
+               </SortableRow>
              ))}
+             </SortableContext>
+             </DndContext>
            </div>
        </div>
     </div>
