@@ -3,34 +3,55 @@
 
 import { User, ChevronDown, Plus, LogOut, Settings } from 'lucide-react';
 import { useOrganization } from '@/context/OrganizationContext';
+import { useCallback } from 'react';
+import { apiFetch } from '@/lib/api';
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearTokens } from '@/lib/auth';
 import { API_BASE_URL } from '@/lib/api';
 
 export default function Header() {
-  const { currentOrg, organizations, switchOrganization } = useOrganization();
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const { currentOrg, switchOrganization } = useOrganization();
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [orgNames, setOrgNames] = useState([]);
+    const [loadingOrgs, setLoadingOrgs] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const router = useRouter();
   const dropdownRef = useRef(null);
   const profileDropdownRef = useRef(null);
 
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsDropdownOpen(false);
-      }
-      if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
-        setIsProfileOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
+    useEffect(() => {
+        function handleClickOutside(event) {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsDropdownOpen(false);
+            }
+            if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
+                setIsProfileOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
+
+    // Fetch org names when dropdown is opened
+    const fetchOrgNames = useCallback(async () => {
+        setLoadingOrgs(true);
+        try {
+            const res = await apiFetch('/orgs/names', { method: 'GET' });
+            if (res.ok) {
+                const data = await res.json();
+                setOrgNames(data);
+            } else {
+                setOrgNames([]);
+            }
+        } catch (e) {
+            setOrgNames([]);
+        }
+        setLoadingOrgs(false);
+    }, []);
 
   const handleLogout = async () => {
       try {
@@ -55,28 +76,35 @@ export default function Header() {
       <div className="flex items-center gap-6">
         {/* Organization Switcher */}
         <div className="relative" ref={dropdownRef}>
-             <button 
-                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors bg-slate-50 px-3 py-1.5 rounded-md border border-slate-200"
-             >
-                 {currentOrg?.name}
-                 <ChevronDown size={14} className={`transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`}/>
-             </button>
+                         <button 
+                                onClick={() => {
+                                    if (!isDropdownOpen) fetchOrgNames();
+                                    setIsDropdownOpen(!isDropdownOpen);
+                                }}
+                                className="flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors bg-slate-50 px-3 py-1.5 rounded-md border border-slate-200"
+                         >
+                                 {currentOrg?.name}
+                                 <ChevronDown size={14} className={`transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`}/>
+                         </button>
              
              {isDropdownOpen && (
                  <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-slate-100 py-1 z-50">
-                     {organizations.map(org => (
+                     {loadingOrgs ? (
+                       <div className="px-4 py-2 text-sm text-slate-400">Loading...</div>
+                     ) : (
+                       orgNames.map((org, idx) => (
                          <button
-                             key={org.id}
-                             onClick={() => {
-                                 switchOrganization(org.id);
-                                 setIsDropdownOpen(false);
-                             }}
-                             className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 ${currentOrg.id === org.id ? 'text-blue-600 font-medium' : 'text-slate-600'}`}
+                           key={org.id || org.org_id || idx}
+                           onClick={() => {
+                             switchOrganization(org.id || org.org_id);
+                             setIsDropdownOpen(false);
+                           }}
+                           className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 ${currentOrg && (currentOrg.id === org.id || currentOrg.id === org.org_id) ? 'text-blue-600 font-medium' : 'text-slate-600'}`}
                          >
-                             {org.name}
+                           {org.name || org.org_name}
                          </button>
-                     ))}
+                       ))
+                     )}
                      <div className="border-t border-slate-100 my-1"></div>
                      <button
                          onClick={() => {
