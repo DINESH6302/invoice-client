@@ -5,10 +5,7 @@ import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, Save, X, CheckCi
 import Sidebar from './Sidebar';
 import EditPanel from './EditPanel';
 import TemplatePreview from './TemplatePreview';
-
-// Explicit backend base URL so API calls are visible in DevTools as calls to the backend port.
-// Can be overridden with NEXT_PUBLIC_API_BASE_URL in different environments.
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || '/v1';
+import { apiFetch, API_BASE_URL } from '@/lib/api';
 
 const initialTemplate = {
   companyDetails: {
@@ -103,7 +100,7 @@ export default function InvoiceTemplateBuilder({ templateId, onBack }) {
         // If NO templates, redirect to dashboard to prevent loop (templates -> redirect empty -> create -> close -> templates -> ...)
         if (!templateId) {
             try {
-                const res = await fetch(`${API_BASE}/templates`);
+                const res = await apiFetch(`${API_BASE_URL}/templates`);
                 if (res.ok) {
                     const data = await res.json();
                     if (Array.isArray(data) && data.length === 0) {
@@ -126,7 +123,7 @@ export default function InvoiceTemplateBuilder({ templateId, onBack }) {
 
             const fetchTemplate = async () => {
                 try {
-                    const res = await fetch(`${API_BASE}/templates/${templateId}`, { signal });
+                    const res = await apiFetch(`${API_BASE_URL}/templates/${templateId}`, { signal });
           if (res.ok) {
             const data = await res.json();
             
@@ -478,11 +475,11 @@ export default function InvoiceTemplateBuilder({ templateId, onBack }) {
                                                                 console.log('Sending payload:', JSON.stringify(payload, null, 2));
 
                                                                 const url = templateId 
-                                                                    ? `${API_BASE}/templates/${templateId}` 
-                                                                    : `${API_BASE}/templates`;
+                                                                    ? `${API_BASE_URL}/templates/${templateId}` 
+                                                                    : `${API_BASE_URL}/templates`;
                                 const method = templateId ? "PUT" : "POST";
 
-                                const response = await fetch(url, {
+                                const response = await apiFetch(url, {
                                     method: method,
                                     headers: {
                                         "Content-Type": "application/json"
