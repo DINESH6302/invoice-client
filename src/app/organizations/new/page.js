@@ -15,6 +15,7 @@ export default function NewOrganizationPage() {
   const [errorPopup, setErrorPopup] = useState({ open: false, message: "" });
   const [successMessage, setSuccessMessage] = useState("");
   const [isLoading, setIsLoading] = useState(isEditMode);
+  const [fetchedData, setFetchedData] = useState(null);
   const hasOrganizations = organizations && organizations.length > 0;
   const [formData, setFormData] = useState({
     name: "",
@@ -48,37 +49,56 @@ export default function NewOrganizationPage() {
         if (res.ok) {
           const data = await res.json();
           const orgData = data.data || data;
-          setFormData({
-            name: orgData.org_name || "",
-            gst: orgData.gst_no || "",
-            location: orgData.address?.country || "IN",
-            state: orgData.address?.state || "MH",
-            street1: orgData.address?.street || "",
-            street2: orgData.address?.street2 || "",
-            city: orgData.address?.city || "",
-            zip: orgData.address?.zip_code || "",
-            currency: orgData.currency || "INR",
-            language: "English",
-            existingMethod: "",
-          });
+          setFetchedData(orgData);  
         } else {
           setErrorPopup({
             open: true,
             message: "Failed to load organization details.",
           });
+          setIsLoading(false);
         }
       } catch (err) {
         setErrorPopup({
           open: true,
           message: err.message || "Failed to load organization details.",
         });
-      } finally {
         setIsLoading(false);
       }
     };
 
     fetchOrgDetails();
   }, [isEditMode, orgId]);
+
+  // Process fetched Data
+  useEffect(() => {
+    if (!fetchedData || loadingCountries) return;
+
+    let countryCode = 'IN';
+    if (countries.length > 0 && fetchedData.address?.country) {
+      const found = countries.find(c => c.name.common === fetchedData.address.country);
+      if (found) {
+        countryCode = found.cca2;
+      } else {
+        const foundByCode = countries.find(c => c.cca2 === fetchedData.address.country);
+        if (foundByCode) countryCode = foundByCode.cca2;
+      }
+    }
+
+    setFormData({
+      name: fetchedData.org_name || "",
+      gst: fetchedData.gst_no || "",
+      location: countryCode,
+      state: fetchedData.address?.state || "",
+      street1: fetchedData.address?.street || "",
+      street2: fetchedData.address?.street2 || "",
+      city: fetchedData.address?.city || "",
+      zip: fetchedData.address?.zip_code || "",
+      currency: fetchedData.currency || "INR",
+      language: "English",
+      existingMethod: "",
+    });
+    setIsLoading(false);
+  }, [fetchedData, countries, loadingCountries]);
 
   useEffect(() => {
     // Fetch countries and currencies from restcountries.com
@@ -102,7 +122,8 @@ export default function NewOrganizationPage() {
     if (country && country.currencies) {
       // Pick first currency
       const [curCode, curObj] = Object.entries(country.currencies)[0];
-      setFormData((f) => ({ ...f, currency: curCode, state: "" }));
+      // Only update currency, DON'T reset state automatically here as it breaks edit mode pre-fill
+      setFormData((f) => ({ ...f, currency: curCode }));
     }
     // Fetch states for selected country
     fetchStates(formData.location);
@@ -182,7 +203,7 @@ export default function NewOrganizationPage() {
         city: formData.city,
         zip_code: formData.zip,
         state: formData.state,
-        country: formData.location,
+        country: countries.find((c) => c.cca2 === formData.location)?.name.common || formData.location,
       },
     };
 
@@ -233,7 +254,12 @@ export default function NewOrganizationPage() {
   };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    if (e.target.name === 'location') {
+        // If country changes, clear the state
+        setFormData({ ...formData, [e.target.name]: e.target.value, state: '' });
+    } else {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    }
   };
 
   const ErrorPopup = ({ open, message, onClose }) => {
@@ -290,21 +316,22 @@ export default function NewOrganizationPage() {
           router.push("/dashboard");
         }}
       />
-      <div className="h-full bg-white">
+      <div className="">
         {/* Right Side - Form */}
-        <div className="h-full overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-6 py-20">
+        <div className="">
+          <div className="max-w-3xl mx-auto px-6 py-12">
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors group"
+              className="flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-6 transition-colors group"
             >
               <ArrowLeft
                 size={18}
                 className="group-hover:-translate-x-1 transition-transform"
               />{" "}
-              Back to Dashboard
+              Back
             </button>
 
+            <div className="bg-white rounded-xl shadow-lg p-8 md:p-10 border border-slate-100">
             <div className="mb-8">
               <div className="h-12 w-12 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600 mb-4">
                 <Building2 size={24} />
@@ -360,8 +387,6 @@ export default function NewOrganizationPage() {
                   </div>
                 </div>
               </div>
-
-              <div className="h-[1px] bg-slate-100"></div>
 
               {/* Section 2: Location */}
               <div className="space-y-6">
@@ -461,7 +486,7 @@ export default function NewOrganizationPage() {
                             : "Select State/Province"}
                         </option>
                         {states.map((s) => (
-                          <option key={s.code} value={s.code}>
+                          <option key={s.code} value={s.name}>
                             {s.name}
                           </option>
                         ))}
@@ -470,8 +495,6 @@ export default function NewOrganizationPage() {
                   </div>
                 </div>
               </div>
-
-              <div className="h-[1px] bg-slate-100"></div>
 
               {/* Section 3: Localization */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -538,9 +561,10 @@ export default function NewOrganizationPage() {
                   {isEditMode ? "Update" : "Save"}
                 </button>
               </div>
-            </form>
-            </>
+                </form>
+              </>
             )}
+            </div>
           </div>
         </div>
       </div>

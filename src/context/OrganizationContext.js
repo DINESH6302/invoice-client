@@ -8,6 +8,19 @@ export function OrganizationProvider({ children }) {
   const [organizations, setOrganizations_state] = useState([]);
   const [currentOrgId, setCurrentOrgId] = useState(null);
 
+  useEffect(() => {
+    const storedOrgId = localStorage.getItem('current_org_id');
+    if (storedOrgId) {
+       setCurrentOrgId(storedOrgId);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentOrgId) {
+      localStorage.setItem('current_org_id', currentOrgId);
+    }
+  }, [currentOrgId]);
+
   const currentOrg = organizations.find(o => o.org_id === currentOrgId);
 
   const addOrganization = (name, orgId) => {

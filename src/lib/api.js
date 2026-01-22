@@ -43,6 +43,13 @@ export const apiFetch = async (endpoint, options = {}) => {
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
 
+  if (typeof window !== 'undefined') {
+      const orgId = localStorage.getItem('current_org_id');
+      if (orgId) {
+          headers['X-Org-Id'] = orgId;
+      }
+  }
+
   // Handle URL construction
   let url = endpoint;
   if (!endpoint.startsWith('http')) {

@@ -158,6 +158,7 @@ export default function Header() {
                     <div key={orgId || idx} className="flex items-center hover:bg-slate-50 group">
                       <button
                         onClick={() => {
+                          localStorage.setItem('current_org_id', orgId);
                           switchOrganization(orgId);
                           setIsDropdownOpen(false);
                         }}
