@@ -1282,7 +1282,7 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
              <Button 
                 onClick={() => {
                     const newT = {...template};
-                    newT.summary.fields.push({ key: `total_${Date.now()}`, label: "New Total", visible: true, type: "system", function: "sum", sourceColumn: "" });
+                    newT.summary.fields.push({ key: `total_${Date.now()}`, label: "New Total", visible: true, type: "system", aggregations: [{ function: 'sum', sourceColumn: '', operator: '+' }] });
                     setTemplate(newT);
                 }}
                 size="sm" 
@@ -1342,53 +1342,109 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                     </div>
                  </div>
 
-                 <div className="grid grid-cols-2 gap-4 pt-2">
-                     <div className="space-y-1">
-                        <Label className="text-[10px] text-muted-foreground">Function</Label>
-                        <select 
-                            className="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                            value={field.function || 'sum'}
-                            onChange={(e) => {
+                 {/* Aggregations Section */}
+                 <div className="pt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                        <Label className="text-[10px] text-muted-foreground">Aggregations</Label>
+                        <Button 
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-xs px-2"
+                            onClick={() => {
                                 const newT = JSON.parse(JSON.stringify(template));
-                                newT.summary.fields[idx].function = e.target.value;
-                                newT.summary.fields[idx].type = 'system';
-                                setTemplate(newT);
-                            }}
-                        >
-                            <option value="sum">Addition (Sum)</option>
-                            <option value="sub">Subtraction (Sub)</option>
-                            <option value="mul">Multiplication (Mul)</option>
-                            <option value="avg">Average (Avg)</option>
-                            <option value="max">Maximum (Max)</option>
-                            <option value="min">Minimum (Min)</option>
-                        </select>
-                    </div>
-                    <div className="space-y-1">
-                        <Label className="text-[10px] text-muted-foreground">Source Column</Label>
-                        <select 
-                            className="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                            value={field.sourceColumn || ''}
-                            onChange={(e) => {
-                                const newT = JSON.parse(JSON.stringify(template));
-                                newT.summary.fields[idx].sourceColumn = e.target.value;
-                                newT.summary.fields[idx].type = 'system';
-                                // Ensure function has a default value when source column is selected
-                                if (!newT.summary.fields[idx].function) {
-                                    newT.summary.fields[idx].function = 'sum';
+                                if (!newT.summary.fields[idx].aggregations) {
+                                    // Migrate from legacy format
+                                    newT.summary.fields[idx].aggregations = field.sourceColumn 
+                                        ? [{ function: field.function || 'sum', sourceColumn: field.sourceColumn, operator: '+' }]
+                                        : [];
                                 }
+                                newT.summary.fields[idx].aggregations.push({ function: 'sum', sourceColumn: '', operator: '+' });
                                 setTemplate(newT);
                             }}
                         >
-                            <option value="">Select Column</option>
-                            {template.table.columns
-                                .filter(col => col.type === 'number' || col.type === 'formula')
-                                .map(col => (
-                                <option key={col.key} value={col.key}>
-                                    {col.label}
-                                </option>
-                            ))}
-                        </select>
+                            <Plus className="w-3 h-3 mr-1" /> Add
+                        </Button>
                     </div>
+                    
+                    {(field.aggregations || [{ function: field.function || 'sum', sourceColumn: field.sourceColumn || '', operator: '+' }]).map((agg, aggIdx) => (
+                        <div key={aggIdx} className="flex items-center gap-2 p-2 bg-slate-50 rounded border">
+                            {aggIdx > 0 && (
+                                <select
+                                    className="h-7 w-12 rounded-md border border-input bg-background px-1 text-xs text-center"
+                                    value={agg.operator || '+'}
+                                    onChange={(e) => {
+                                        const newT = JSON.parse(JSON.stringify(template));
+                                        if (!newT.summary.fields[idx].aggregations) {
+                                            newT.summary.fields[idx].aggregations = [{ function: field.function || 'sum', sourceColumn: field.sourceColumn || '', operator: '+' }];
+                                        }
+                                        newT.summary.fields[idx].aggregations[aggIdx].operator = e.target.value;
+                                        setTemplate(newT);
+                                    }}
+                                >
+                                    <option value="+">+</option>
+                                    <option value="-">−</option>
+                                    <option value="*">×</option>
+                                    <option value="/">÷</option>
+                                </select>
+                            )}
+                            <select 
+                                className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs"
+                                value={agg.function || 'sum'}
+                                onChange={(e) => {
+                                    const newT = JSON.parse(JSON.stringify(template));
+                                    if (!newT.summary.fields[idx].aggregations) {
+                                        newT.summary.fields[idx].aggregations = [{ function: field.function || 'sum', sourceColumn: field.sourceColumn || '', operator: '+' }];
+                                    }
+                                    newT.summary.fields[idx].aggregations[aggIdx].function = e.target.value;
+                                    setTemplate(newT);
+                                }}
+                            >
+                                <option value="sum">Sum</option>
+                                <option value="sub">Sub</option>
+                                <option value="mul">Mul</option>
+                                <option value="avg">Avg</option>
+                                <option value="max">Max</option>
+                                <option value="min">Min</option>
+                            </select>
+                            <select 
+                                className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs"
+                                value={agg.sourceColumn || ''}
+                                onChange={(e) => {
+                                    const newT = JSON.parse(JSON.stringify(template));
+                                    if (!newT.summary.fields[idx].aggregations) {
+                                        newT.summary.fields[idx].aggregations = [{ function: field.function || 'sum', sourceColumn: field.sourceColumn || '', operator: '+' }];
+                                    }
+                                    newT.summary.fields[idx].aggregations[aggIdx].sourceColumn = e.target.value;
+                                    setTemplate(newT);
+                                }}
+                            >
+                                <option value="">Column</option>
+                                {template.table.columns
+                                    .filter(col => col.type === 'number' || col.type === 'formula')
+                                    .map(col => (
+                                    <option key={col.key} value={col.key}>
+                                        {col.label}
+                                    </option>
+                                ))}
+                            </select>
+                            {(field.aggregations?.length > 1 || aggIdx > 0) && (
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-6 w-6 text-red-400 hover:text-red-600"
+                                    onClick={() => {
+                                        const newT = JSON.parse(JSON.stringify(template));
+                                        if (newT.summary.fields[idx].aggregations && newT.summary.fields[idx].aggregations.length > 1) {
+                                            newT.summary.fields[idx].aggregations.splice(aggIdx, 1);
+                                            setTemplate(newT);
+                                        }
+                                    }}
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                </Button>
+                            )}
+                        </div>
+                    ))}
                  </div>
 
                  {/* Style Toggles */}

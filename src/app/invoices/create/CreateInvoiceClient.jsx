@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import {
   ArrowLeft,
@@ -31,23 +31,22 @@ const CollapsibleSection = ({
 
   return (
     <section
-      className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden ${className}`}
+      className={`bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden ${className}`}
     >
       <div
-        className="flex items-center justify-between p-6 cursor-pointer hover:bg-slate-50/50 transition-colors"
+        className="flex items-center justify-between p-6 cursor-pointer bg-blue-50/50 hover:bg-blue-100/50 transition-colors border-b border-blue-100"
         onClick={() => setIsOpen(!isOpen)}
       >
-        <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+        <h2 className="text-sm font-bold text-blue-600 uppercase tracking-wider">
           {title}
         </h2>
-        <button className="text-slate-400">
+        <button className="text-blue-400">
           {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
         </button>
       </div>
 
       {isOpen && (
-        <div className="px-6 pb-6">
-          <div className="border-t border-slate-100 mb-6"></div>
+        <div className="px-6 pb-6 pt-6">
           {children}
         </div>
       )}
@@ -55,10 +54,10 @@ const CollapsibleSection = ({
   );
 };
 
-export default function EditInvoicePage() {
+export default function CreateInvoiceClient() {
   const router = useRouter();
-  
-  const [invoiceId, setInvoiceId] = useState(null);
+  const searchParams = useSearchParams();
+  const templateId = searchParams.get("template_id");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [template, setTemplate] = useState(null);
@@ -69,7 +68,11 @@ export default function EditInvoicePage() {
   const dataFetchedRef = useRef(false);
 
   // Popup State
-  const [saveResult, setSaveResult] = useState({ show: false, success: false, message: '' });
+  const [saveResult, setSaveResult] = useState({
+    show: false,
+    success: false,
+    message: "",
+  });
 
   // Invoice State
   const [invoiceData, setInvoiceData] = useState({
@@ -84,179 +87,198 @@ export default function EditInvoicePage() {
   });
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-        const storedId = sessionStorage.getItem('editInvoiceId');
-        if (!storedId) {
-            router.push('/invoices');
-            return;
-        }
-        setInvoiceId(storedId);
-    }
-  }, [router]);
+    if (dataFetchedRef.current) return;
+    dataFetchedRef.current = true;
+    loadInitialData();
+  }, []);
 
-  useEffect(() => {
-      if (invoiceId && !dataFetchedRef.current) {
-          dataFetchedRef.current = true;
-          loadInitialData(invoiceId);
-      }
-  }, [invoiceId]);
-
-  const loadInitialData = async (id) => {
+  const loadInitialData = async () => {
     try {
-      // 0. Ensure we have a template ID, either from storage (preferred) or we'll hope it's in the invoice
-      let currentTemplateId = null;
-      if (typeof window !== 'undefined') {
-          currentTemplateId = sessionStorage.getItem('editTemplateId');
-      }
+      const templateApiUrl = templateId
+        ? `/templates/${templateId}`
+        : "/templates/default";
 
-      // 1. Fetch Template FIRST if we have the ID, otherwise we have to fetch invoice first
+      const [tplRes, orgRes, custRes] = await Promise.all([
+        apiFetch(templateApiUrl),
+        apiFetch("/orgs"),
+        apiFetch("/customers/summary"),
+      ]);
+
       let tplData = null;
-      let customers = [];
-      let invData = null;
+      let orgData = null;
 
-      // Parallel Fetch Strategy based on if we know the template ID
-      if (currentTemplateId) {
-          const [tplRes, custRes, invRes] = await Promise.all([
-             apiFetch(`/v1/templates/${currentTemplateId}`),
-             apiFetch("/v1/customers/summary"),
-             apiFetch(`/v1/invoices/${id}`)
-          ]);
+      if (tplRes.ok) {
+        const json = await tplRes.json();
+        tplData = json.data || json;
+        setTemplate(tplData);
 
-          if (tplRes.ok) {
-              const json = await tplRes.json();
-              tplData = json.data || json;
-              setTemplate(tplData);
-              setLoadedTemplateId(currentTemplateId);
-          }
-          if (custRes.ok) {
-              const json = await custRes.json();
-              customers = json.data || [];
-              setCustomerList(customers);
-          }
-           if (invRes.ok) {
-              const json = await invRes.json();
-              invData = json.data || json;
-              setSelectedCustomerId(invData.customer_id);
-          }
+        // Capture Template ID robustly
+        const foundId =
+          tplData.template_id ||
+          tplData._id ||
+          tplData.id ||
+          json.template_id ||
+          (json.data && json.data.template_id);
+        if (foundId) {
+          setLoadedTemplateId(foundId);
+        } else if (templateId) {
+          setLoadedTemplateId(templateId);
+        }
       } else {
-          // Fallback: Fetch Invoice first to get Template ID
-          console.warn("No template ID in storage, fetching invoice first...");
-          const invRes = await apiFetch(`/v1/invoices/${id}`);
-          if (!invRes.ok) throw new Error("Failed to load invoice details");
-          
-          const invJson = await invRes.json();
-          invData = invJson.data || invJson;
-          
-          currentTemplateId = invData.template_id || invData.template?.template_id;
-          if (!currentTemplateId) throw new Error("Invoice does not have a linked template and none provided.");
-
-          setLoadedTemplateId(currentTemplateId);
-          setSelectedCustomerId(invData.customer_id);
-
-          const [tplRes, custRes] = await Promise.all([
-             apiFetch(`/v1/templates/${currentTemplateId}`),
-             apiFetch("/v1/customers/summary"),
-          ]);
-           if (tplRes.ok) {
-              const json = await tplRes.json();
-              tplData = json.data || json;
-              setTemplate(tplData);
-          }
-           if (custRes.ok) {
-              const json = await custRes.json();
-              customers = json.data || [];
-              setCustomerList(customers);
-          }
+        throw new Error(
+          templateId
+            ? "Failed to load selected template"
+            : "Failed to load default template",
+        );
       }
 
-      if (tplData && invData) {
-        populateInvoiceData(invData, tplData);
-      } else {
-          throw new Error("Failed to load necessary data");
+      if (orgRes.ok) {
+        const json = await orgRes.json();
+        // Handle both single object and array response (take first org)
+        const rawData = json.data || json;
+        orgData = Array.isArray(rawData) ? rawData[0] : rawData;
       }
 
+      if (custRes.ok) {
+        const json = await custRes.json();
+        setCustomerList(json.data || []);
+      }
+
+      if (tplData) {
+        initializeInvoiceData(tplData, orgData);
+      }
     } catch (err) {
       console.error("Error fetching data:", err);
-      setError(err.message || "Network or Template error occurred");
+      setError("Network or Template error occurred");
     } finally {
       setLoading(false);
     }
   };
 
-  const populateInvoiceData = (invData, tmpl) => {
-    const newState = {
+  const initializeInvoiceData = (tmpl, orgData) => {
+    const initialData = {
       header: {},
       meta: {},
       customer: { bill_to: {}, ship_to: {} },
-      items: [],
-      footer: {},
+      items: [{ id: Date.now() }], // Start with one empty item row
+      footer: {}, // Footer usually contains static bank details
     };
 
-    const mapToObj = (fieldsArr) => {
-        if (!Array.isArray(fieldsArr)) return {};
-        return fieldsArr.reduce((acc, field) => {
-            acc[field.key] = field.value || "";
-            return acc;
-        }, {});
+    // Helper to init fields
+    const initFields = (fields, targetObj) => {
+      if (Array.isArray(fields)) {
+        fields.forEach((field) => {
+          targetObj[field.key] = "";
+        });
+      }
     };
 
-    // Header
-    if (invData.header?.fields) {
-        newState.header = mapToObj(invData.header.fields);
-    }
+    if (tmpl.header?.fields) initFields(tmpl.header.fields, initialData.header);
+    if (tmpl.invoice_meta?.fields)
+      initFields(tmpl.invoice_meta.fields, initialData.meta);
+    if (tmpl.customer_details?.bill_to?.fields)
+      initFields(
+        tmpl.customer_details.bill_to.fields,
+        initialData.customer.bill_to,
+      );
+    if (tmpl.customer_details?.ship_to?.fields)
+      initFields(
+        tmpl.customer_details.ship_to.fields,
+        initialData.customer.ship_to,
+      );
 
-    // Meta
-    if (invData.invoice_meta?.fields) {
-        newState.meta = mapToObj(invData.invoice_meta.fields);
-    }
+    // Populate Header from Org Data
+    if (orgData && tmpl.header?.fields) {
+      tmpl.header.fields.forEach((field) => {
+        // Check 'label' from API then fallback to 'label'
+        const label = (field.label || "").toLowerCase().trim();
 
-    // Customer
-    if (invData.customer_details) {
-        if (invData.customer_details.bill_to?.fields) {
-            newState.customer.bill_to = mapToObj(invData.customer_details.bill_to.fields);
+        if (label === "company name") {
+          initialData.header[field.key] = orgData.org_name || "";
+        } else if (label.toLowerCase().includes("gst")) {
+          initialData.header[field.key] = orgData.gst_no || "";
+        } else if (label === "state") {
+          initialData.header[field.key] = orgData.address?.state || "";
+        } else if (label === "address" || label === "company address") {
+          const addr = orgData.address || {};
+          // Format: street + ", " + city + ", " + state + " - " + zip_code + ", " + state
+          const parts = [];
+          if (addr.street) parts.push(addr.street);
+          if (addr.city) parts.push(addr.city);
+
+          let complexPart = "";
+          if (addr.state) complexPart += addr.state;
+          if (addr.zip_code)
+            complexPart += (complexPart ? " - " : "") + addr.zip_code;
+          // Re-appending state as requested
+          //  if (addr.state) complexPart += (complexPart ? ", " : "") + addr.state;
+
+          if (complexPart) parts.push(complexPart);
+
+          initialData.header[field.key] = parts.join(", ");
+        } else if (label === "date") {
+          const today = new Date();
+          const yyyy = today.getFullYear();
+          const mm = String(today.getMonth() + 1).padStart(2, "0");
+          const dd = String(today.getDate()).padStart(2, "0");
+          // If the rendered input is type='date', use yyyy-mm-dd
+          // If text, use dd/mm/yyyy
+          // Based on rendering logic: type={field.label?.toLowerCase().includes('date') ? 'date' : 'text'}
+          initialData.header[field.key] = `${yyyy}-${mm}-${dd}`;
         }
-        if (invData.customer_details.ship_to?.fields) {
-            newState.customer.ship_to = mapToObj(invData.customer_details.ship_to.fields);
+      });
+    }
+
+    // Populate Bill To from Org Data
+    if (orgData && tmpl.customer_details?.bill_to?.fields) {
+      tmpl.customer_details.bill_to.fields.forEach((field) => {
+        const label = (field.label || "").toLowerCase().trim();
+
+        if (label === "company name" || label === "name") {
+          initialData.customer.bill_to[field.key] = orgData.org_name || "";
+        } else if (label.toLowerCase().includes("gst") || label.toLowerCase().includes("tax")) {
+          initialData.customer.bill_to[field.key] = orgData.gst_no || "";
+        } else if (label === "state") {
+          initialData.customer.bill_to[field.key] =
+            orgData.address?.state || "";
+        } else if (label === "address") {
+          const addr = orgData.address || {};
+          // Format: street + ", " + city + ", " + state + " - " + zip_code
+          const parts = [];
+          if (addr.street) parts.push(addr.street);
+          if (addr.city) parts.push(addr.city);
+
+          let complexPart = "";
+          if (addr.state) complexPart += addr.state;
+          if (addr.zip_code)
+            complexPart += (complexPart ? " - " : "") + addr.zip_code;
+
+          if (complexPart) parts.push(complexPart);
+
+          initialData.customer.bill_to[field.key] = parts.join(", ");
         }
+      });
     }
 
-    // Items
-    if (invData.items?.fields && Array.isArray(invData.items.fields)) {
-        newState.items = invData.items.fields.map(item => ({
-            ...item,
-            id: item.id || Date.now() + Math.random() 
-        }));
-    } else if (Array.isArray(invData.items)) {
-         newState.items = invData.items.map(item => ({
-            ...item,
-            id: item.id || Date.now() + Math.random()
-        }));
-    } else {
-        newState.items = [{ id: Date.now() }];
-    }
-
-    // Footer
-    if (invData.footer?.fields) {
-        newState.footer = mapToObj(invData.footer.fields);
-    }
-
-    setInvoiceData(newState);
+    setInvoiceData(initialData);
   };
 
-  const handleCustomerSelect = async (customerId) => {
+  const handleCustomerSelect = async (customerId, targetSection = "ship_to") => {
     setSelectedCustomerId(customerId);
     const selected = customerList.find((c) => c.customer_id == customerId);
     if (!selected) return;
 
-    const shipToFields = template.customer_details?.ship_to?.fields || [];
-    const nameField = shipToFields.find((f) => f.label === "Name");
+    // Use name from selection immediately
+    // We assume the Name field key can be found in the template
+    const fields = template.customer_details?.[targetSection]?.fields || [];
+    const nameField = fields.find((f) => f.label === "Name");
 
     if (nameField) {
       handleInputChange(
         "customer",
         nameField.key,
         selected.customer_name,
-        "ship_to",
+        targetSection,
       );
     }
 
@@ -267,6 +289,7 @@ export default function EditInvoicePage() {
         const details = json.data;
         const addressObj = details.address || {};
 
+        // Format address
         const parts = [];
         if (addressObj.street) parts.push(addressObj.street);
         if (addressObj.city) parts.push(addressObj.city);
@@ -282,19 +305,20 @@ export default function EditInvoicePage() {
 
         setInvoiceData((prev) => {
           const newData = { ...prev };
+          // Ensure proper referencing if doing deep mutation
           newData.customer = { ...prev.customer };
-          newData.customer.ship_to = { ...prev.customer.ship_to };
+          newData.customer[targetSection] = { ...prev.customer[targetSection] };
 
-          shipToFields.forEach((field) => {
+          fields.forEach((field) => {
             const label = (field.label || "").toLowerCase();
             const key = field.key;
 
             if (label === "address") {
-              newData.customer.ship_to[key] = fullAddress;
+              newData.customer[targetSection][key] = fullAddress;
             } else if (label === "state") {
-              newData.customer.ship_to[key] = addressObj.state || "";
-            } else if (label.toLowerCase().includes("gst")) {
-              newData.customer.ship_to[key] = details.gst_no || "";
+              newData.customer[targetSection][key] = addressObj.state || "";
+            } else if (label.includes("gst") || label.includes("tax")) {
+              newData.customer[targetSection][key] = details.gst_no || details.gstNo || "";
             }
           });
           return newData;
@@ -394,6 +418,7 @@ export default function EditInvoicePage() {
     return 0;
   };
 
+  // Formula evaluator helper
   const evaluateFormula = (formula, row, labelToKey) => {
     if (!formula) return "";
     let expression = formula;
@@ -430,13 +455,16 @@ export default function EditInvoicePage() {
       const newItems = [...prev.items];
       let currentItem = { ...newItems[index], [key]: value };
 
+      // Dynamic Calculation logic
       if (template?.items?.columns) {
         const columns = template.items.columns;
         const labelToKey = {};
         columns.forEach((col) => (labelToKey[col.label] = col.key));
 
+        // Multi-pass evaluation to handle dependencies
         for (let i = 0; i < 2; i++) {
           columns.forEach((col) => {
+            // Only calculate if formula exists and field is NOT the one being edited
             if ((col.type === "formula" || col.formula) && col.key !== key) {
               const calculated = evaluateFormula(
                 col.formula,
@@ -464,7 +492,7 @@ export default function EditInvoicePage() {
   };
 
   const handleRemoveItem = (index) => {
-    if (invoiceData.items.length <= 1) return;
+    if (invoiceData.items.length <= 1) return; // Prevent removing last row
     setInvoiceData((prev) => {
       const newItems = prev.items.filter((_, i) => i !== index);
       return { ...prev, items: newItems };
@@ -472,11 +500,16 @@ export default function EditInvoicePage() {
   };
 
   const handleSave = async () => {
+    // Construct payload
     const payload = {
       template_id: loadedTemplateId,
       customer_id: selectedCustomerId,
     };
 
+    // Debug Payload content
+    console.log("Saving Invoice Payload:", payload);
+
+    // Helper to map fields
     const mapFields = (fields, dataObj) => {
       return fields.map((field) => ({
         key: field.key,
@@ -523,28 +556,29 @@ export default function EditInvoicePage() {
       };
     }
 
+    // Items
     payload.items = { fields: invoiceData.items };
 
     try {
       setIsSaving(true);
-      const res = await apiFetch(`/v1/invoices/${invoiceId}`, {
-        method: "PUT",
+      const res = await apiFetch("/v1/invoices", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (res.ok) {
         setSaveResult({
-            show: true,
-            success: true,
-            message: "Invoice updated successfully."
+          show: true,
+          success: true,
+          message: "Invoice created successfully.",
         });
       } else {
         const data = await res.json();
         setSaveResult({
-            show: true,
-            success: false,
-            message: data.message || "Failed to update invoice."
+          show: true,
+          success: false,
+          message: data.message || "Failed to save invoice.",
         });
       }
     } catch (e) {
@@ -552,7 +586,7 @@ export default function EditInvoicePage() {
       setSaveResult({
         show: true,
         success: false,
-        message: "An unexpected error occurred while saving."
+        message: "An unexpected error occurred while saving.",
       });
     } finally {
       setIsSaving(false);
@@ -561,7 +595,7 @@ export default function EditInvoicePage() {
 
   const handleClosePopup = () => {
     if (saveResult.success) {
-        router.push("/invoices");
+      router.push("/invoices");
     }
     setSaveResult({ ...saveResult, show: false });
   };
@@ -572,7 +606,7 @@ export default function EditInvoicePage() {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="animate-spin text-blue-600" size={32} />
           <p className="text-slate-500 font-medium">
-            Loading invoice details...
+            Loading default template...
           </p>
         </div>
       </div>
@@ -587,16 +621,16 @@ export default function EditInvoicePage() {
             <FileText size={24} />
           </div>
           <h3 className="text-lg font-bold text-slate-800 mb-2">
-            Error
+            Template Error
           </h3>
           <p className="text-slate-600 mb-6">
-            {error}
+            {error}. Please ensure a default invoice template is set.
           </p>
           <button
-            onClick={() => router.push("/invoices")}
+            onClick={() => router.push("/dashboard")}
             className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
           >
-            Back to Invoices
+            Back to Dashboard
           </button>
         </div>
       </div>
@@ -607,15 +641,16 @@ export default function EditInvoicePage() {
 
   return (
     <div className="min-h-screen bg-slate-50/50 pb-20">
+      {/* Top Navigation */}
       <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => router.push('/invoices')}
+            onClick={() => router.back()}
             className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
           >
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-xl font-bold text-slate-800">Edit Invoice</h1>
+          <h1 className="text-xl font-bold text-slate-800">Create Invoice</h1>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -626,12 +661,12 @@ export default function EditInvoicePage() {
             {isSaving ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                Updating...
+                Saving...
               </>
             ) : (
               <>
                 <Save size={16} />
-                Update Invoice
+                Save Invoice
               </>
             )}
           </button>
@@ -639,22 +674,40 @@ export default function EditInvoicePage() {
       </div>
 
       <div className="max-w-5xl mx-auto p-6 space-y-8">
+        {/* 1. Header Section */}
         {template.header?.fields?.length > 0 && (
           <CollapsibleSection title="Header Details">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+            <div
+              className={`grid grid-cols-1 ${
+                (template.header?.fields?.length || 0) < 3
+                  ? "md:grid-cols-2"
+                  : "md:grid-cols-3"
+              } gap-x-8 gap-y-6`}
+            >
+              {/* Template fields first */}
               {template.header?.fields?.map((field) => (
                 <div key={field.key} className="space-y-1.5">
                   <label className="text-sm font-medium text-slate-700">
                     {field.label || field.label}
                   </label>
                   <input
-                    type={field.type || (field.label?.toLowerCase().includes("date") ? "date" : "text")}
+                    type={
+                      field.label?.toLowerCase().includes("gst") || field.type === "number"
+                        ? "text"
+                        : field.type ||
+                          (field.label?.toLowerCase().includes("date")
+                            ? "date"
+                            : "text")
+                    }
+                    inputMode={field.type === "number" ? "decimal" : undefined}
                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                     placeholder={`Enter ${field.label || field.label}`}
                     value={invoiceData.header[field.key] || ""}
-                    onChange={(e) =>
-                      handleInputChange("header", field.key, e.target.value)
-                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (field.type === "number" && val !== "" && !/^\d*\.?\d*$/.test(val)) return;
+                      handleInputChange("header", field.key, val);
+                    }}
                   />
                 </div>
               ))}
@@ -662,10 +715,16 @@ export default function EditInvoicePage() {
           </CollapsibleSection>
         )}
 
+        {/* 2. Invoice Meta Data */}
         {template.invoice_meta?.fields?.length > 0 && (
           <CollapsibleSection title="Invoice Details">
+            {/* Using column layout from template if available, else standard grid */}
             <div
-              className={`grid grid-cols-1 md:grid-cols-${template.invoice_meta?.column_layout || 4} gap-6`}
+              className={`grid grid-cols-1 ${
+                (template.invoice_meta?.fields?.length || 0) < 3
+                  ? "md:grid-cols-2"
+                  : `md:grid-cols-${template.invoice_meta?.column_layout || 3}`
+              } gap-6`}
             >
               {template.invoice_meta?.fields?.map((field) => (
                 <div key={field.key} className="space-y-1.5">
@@ -673,12 +732,22 @@ export default function EditInvoicePage() {
                     {field.label}
                   </label>
                   <input
-                    type={field.type || (field.label?.toLowerCase().includes("date") ? "date" : "text")}
+                    type={
+                      field.label?.toLowerCase().includes("gst") || field.type === "number"
+                        ? "text"
+                        : field.type ||
+                          (field.label?.toLowerCase().includes("date")
+                            ? "date"
+                            : "text")
+                    }
+                    inputMode={field.type === "number" ? "decimal" : undefined}
                     className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                     value={invoiceData.meta[field.key] || ""}
-                    onChange={(e) =>
-                      handleInputChange("meta", field.key, e.target.value)
-                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (field.type === "number" && val !== "" && !/^\d*\.?\d*$/.test(val)) return;
+                      handleInputChange("meta", field.key, val);
+                    }}
                   />
                 </div>
               ))}
@@ -686,10 +755,12 @@ export default function EditInvoicePage() {
           </CollapsibleSection>
         )}
 
+        {/* 3. Customer Details */}
         {(template.customer_details?.bill_to?.fields?.length > 0 ||
           template.customer_details?.ship_to?.fields?.length > 0) && (
           <CollapsibleSection title="Customer Details">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+              {/* Bill To */}
               {template.customer_details?.bill_to?.fields?.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="font-semibold text-slate-800 flex items-center gap-2">
@@ -698,34 +769,52 @@ export default function EditInvoicePage() {
                   </h3>
                   <div className="space-y-4 bg-slate-50/50 p-4 rounded-lg border border-slate-100">
                     {template.customer_details?.bill_to?.fields?.map(
-                      (field) => (
-                        <div key={field.key} className="space-y-1.5">
-                          <label className="text-xs font-semibold text-slate-500 uppercase">
-                            {field.label}
-                          </label>
-                          <input
-                            type={field.type || "text"}
-                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                            placeholder={field.label}
-                            value={
-                              invoiceData.customer.bill_to[field.key] || ""
-                            }
-                            onChange={(e) =>
-                              handleInputChange(
-                                "customer",
-                                field.key,
-                                e.target.value,
-                                "bill_to",
-                              )
-                            }
-                          />
-                        </div>
-                      ),
+                      (field) => {
+                        return (
+                          <div key={field.key} className="space-y-1.5">
+                            <label className="text-xs font-semibold text-slate-500 uppercase">
+                              {field.label}
+                            </label>
+                            <input
+                              type={
+                                field.label?.toLowerCase().includes("gst") ||
+                                field.type === "number"
+                                  ? "text"
+                                  : field.type || "text"
+                              }
+                              inputMode={
+                                field.type === "number" ? "decimal" : undefined
+                              }
+                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                              placeholder={field.label}
+                              value={
+                                invoiceData.customer.bill_to[field.key] || ""
+                              }
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (
+                                  field.type === "number" &&
+                                  val !== "" &&
+                                  !/^\d*\.?\d*$/.test(val)
+                                )
+                                  return;
+                                handleInputChange(
+                                  "customer",
+                                  field.key,
+                                  val,
+                                  "bill_to",
+                                );
+                              }}
+                            />
+                          </div>
+                        );
+                      },
                     )}
                   </div>
                 </div>
               )}
 
+              {/* Ship To */}
               {template.customer_details?.ship_to?.fields?.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="font-semibold text-slate-800 flex items-center gap-2">
@@ -761,10 +850,24 @@ export default function EditInvoicePage() {
                                       (c) => c.customer_name === val,
                                     );
                                     if (cust)
-                                      handleCustomerSelect(cust.customer_id);
+                                      handleCustomerSelect(cust.customer_id, "ship_to");
                                   }}
                                 >
                                   <option value="">Select Customer</option>
+                                  {invoiceData.customer.ship_to[field.key] &&
+                                    !customerList.find(
+                                      (c) =>
+                                        c.customer_name ===
+                                        invoiceData.customer.ship_to[field.key],
+                                    ) && (
+                                      <option
+                                        value={
+                                          invoiceData.customer.ship_to[field.key]
+                                        }
+                                      >
+                                        {invoiceData.customer.ship_to[field.key]}
+                                      </option>
+                                    )}
                                   {customerList.map((c) => (
                                     <option
                                       key={c.customer_id}
@@ -788,20 +891,27 @@ export default function EditInvoicePage() {
                               {label}
                             </label>
                             <input
-                              type={field.type || "text"}
+                              type={
+                                field.label?.toLowerCase().includes("gst") || field.type === "number"
+                                  ? "text"
+                                  : field.type || "text"
+                              }
+                              inputMode={field.type === "number" ? "decimal" : undefined}
                               className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                               placeholder={label}
                               value={
                                 invoiceData.customer.ship_to[field.key] || ""
                               }
-                              onChange={(e) =>
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (field.type === "number" && val !== "" && !/^\d*\.?\d*$/.test(val)) return;
                                 handleInputChange(
                                   "customer",
                                   field.key,
-                                  e.target.value,
+                                  val,
                                   "ship_to",
                                 )
-                              }
+                              }}
                             />
                           </div>
                         );
@@ -814,6 +924,7 @@ export default function EditInvoicePage() {
           </CollapsibleSection>
         )}
 
+        {/* 4. Items Section */}
         <CollapsibleSection title="Items">
           <div className="space-y-4">
             {invoiceData.items.map((item, index) => (
@@ -821,6 +932,7 @@ export default function EditInvoicePage() {
                 key={item.id}
                 className="p-5 rounded-xl border border-slate-200 bg-white shadow-sm relative group hover:border-blue-200 hover:shadow-md transition-all"
               >
+                {/* Header of the Card: Item Index and Remove */}
                 <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-50">
                   <h4 className="text-sm font-bold text-slate-700">
                     Item #{index + 1}
@@ -836,6 +948,7 @@ export default function EditInvoicePage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-5">
                   {template.items?.columns?.map((col) => {
+                    // Skip S.No in the grid as it is handled by the header
                     if (col.label === "S.No" || col.key === "sno") return null;
 
                     return (
@@ -847,14 +960,17 @@ export default function EditInvoicePage() {
                           {col.label}
                         </label>
                         <input
-                          type={col.type || "text"}
-                          className={`w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-300 ${col.type === "number" ? "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-medium text-slate-700" : ""}`}
+                          type={col.type === "number" ? "text" : col.type || "text"}
+                          inputMode={col.type === "number" ? "decimal" : undefined}
+                          className={`w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-300 ${col.type === "number" ? "font-medium text-slate-700" : ""}`}
                           placeholder={col.label}
                           value={item[col.key] || ""}
-                          onWheel={(e) => e.target.blur()}
-                          onChange={(e) =>
-                            handleItemChange(index, col.key, e.target.value)
-                          }
+                          // onWheel intentionally removed since it's text type
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (col.type === "number" && val !== "" && !/^\d*\.?\d*$/.test(val)) return;
+                            handleItemChange(index, col.key, val);
+                          }}
                         />
                       </div>
                     );
@@ -873,6 +989,7 @@ export default function EditInvoicePage() {
         </CollapsibleSection>
 
         <div className="flex flex-col md:flex-row gap-6 items-start">
+          {/* 6. Footer Section (Left) */}
           {template.footer?.fields?.length > 0 && (
             <div className="w-full md:flex-1">
               <CollapsibleSection title="Bank Details">
@@ -898,11 +1015,13 @@ export default function EditInvoicePage() {
                       </div>
                     )}
                   </div>
+                  {/* Notes or Terms could go here */}
                 </div>
               </CollapsibleSection>
             </div>
           )}
 
+          {/* 5. Total Section (Right) */}
           <div className="w-full md:flex-1 space-y-6">
             {template.total?.fields?.length > 0 && (
               <CollapsibleSection title="Summary">
@@ -939,40 +1058,49 @@ export default function EditInvoicePage() {
         </div>
       </div>
 
-       {saveResult.show && (
+      {/* Success/Error Popup */}
+      {saveResult.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/20 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-100 p-6 relative">
-             <button 
+            <button
+              onClick={handleClosePopup}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex flex-col items-center text-center">
+              <div
+                className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
+                  saveResult.success
+                    ? "bg-green-100 text-green-600"
+                    : "bg-red-100 text-red-600"
+                }`}
+              >
+                {saveResult.success ? (
+                  <CheckCircle size={24} />
+                ) : (
+                  <AlertCircle size={24} />
+                )}
+              </div>
+
+              <h3
+                className={`text-lg font-bold mb-2 ${
+                  saveResult.success ? "text-green-700" : "text-red-700"
+                }`}
+              >
+                {saveResult.success ? "Success!" : "Error"}
+              </h3>
+
+              <p className="text-slate-600 mb-6">{saveResult.message}</p>
+
+              <button
                 onClick={handleClosePopup}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
-             >
-                <X size={20} />
-             </button>
-             
-             <div className="flex flex-col items-center text-center">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
-                    saveResult.success ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                }`}>
-                    {saveResult.success ? <CheckCircle size={24} /> : <AlertCircle size={24} />}
-                </div>
-                
-                <h3 className={`text-lg font-bold mb-2 ${
-                    saveResult.success ? 'text-green-700' : 'text-red-700'
-                }`}>
-                    {saveResult.success ? 'Success!' : 'Error'}
-                </h3>
-                
-                <p className="text-slate-600 mb-6">
-                    {saveResult.message}
-                </p>
-                
-                <button
-                    onClick={handleClosePopup}
-                    className="px-8 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-medium transition-colors shadow-sm mt-2"
-                >
-                    Close
-                </button>
-             </div>
+                className="px-8 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-medium transition-colors shadow-sm mt-2"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

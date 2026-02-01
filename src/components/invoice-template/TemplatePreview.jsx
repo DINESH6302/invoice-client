@@ -72,77 +72,89 @@ export default function TemplatePreview({ template, renderData }) {
 
   // Helper to compute all cell values including formulas
   const calculateRowValues = (rowItem, rowIndex) => {
-      // 1. Initial Data Pass
+      // Map column values - all values are already calculated and stored
       const values = template.table.columns.map((col) => {
           // A. Real Data Handling
           if (renderData && typeof rowItem === 'object') {
               // Priority 1: Check 'fields' array (API Standard)
               if (Array.isArray(rowItem.fields)) {
                   const field = rowItem.fields.find(f => f.key === col.key);
-                  if (field) return field.value;
+                  if (field) {
+                      // Convert to number if it's a number/formula column
+                      if (col.type === 'number' || col.type === 'formula') {
+                          const num = parseFloat(field.value);
+                          return isNaN(num) ? 0 : num;
+                      }
+                      return field.value;
+                  }
               }
-              // Priority 2: Direct Property Access
-              if (rowItem[col.key] !== undefined) return rowItem[col.key];
+              // Priority 2: Direct Property Access using column key
+              if (rowItem[col.key] !== undefined) {
+                  // Convert to number if it's a number/formula column
+                  if (col.type === 'number' || col.type === 'formula') {
+                      const num = parseFloat(rowItem[col.key]);
+                      return isNaN(num) ? 0 : num;
+                  }
+                  return rowItem[col.key];
+              }
 
               // Priority 3: Special Columns
               if (col.label === 'S.No') return rowIndex + 1;
 
               // Fallback
-              return 0;
+              return col.type === 'number' || col.type === 'formula' ? 0 : '';
           }
 
-          // B. Dummy Data Handling
+          // B. Dummy Data Handling (for template preview without invoice data)
           const rowNum = rowItem;
           if (col.label === 'S.No') return rowNum;
           if (col.label === 'Item & Description') return "Premium Product Name";
-          if (col.label === 'Quantity') return rowNum * 2;
-          if (col.label === 'price') return 150.00; // Note: 'price' is lower case in init
+          if (col.type === 'number') return rowNum * 100;
+          
+          // For formula columns in dummy mode, calculate them
+          if (col.type === 'formula') return 0; // Will be calculated below
           
           return 0;
       });
 
-      // 2. Formula Pass - Multi-pass to handle dependencies regardless of column order
-      // Run multiple passes until all formulas are resolved or max iterations reached
-      const MAX_PASSES = 5;
-      let changed = true;
-      let pass = 0;
-      
-      while (changed && pass < MAX_PASSES) {
-          changed = false;
-          pass++;
+      // Only calculate formulas for dummy preview mode (no renderData)
+      if (!renderData) {
+          const MAX_PASSES = 5;
+          let changed = true;
+          let pass = 0;
           
-          template.table.columns.forEach((col, idx) => {
-              if (col.type === 'formula' && col.formula) {
-                  try {
-                      // Replace Column References [Label] with actual numeric values
-                      const expr = col.formula.replace(/\[(.*?)\]/g, (match, labelName) => {
-                          // Find column by Label (case-insensitive for flexibility)
-                          const colIndex = template.table.columns.findIndex(c => 
-                              c.label.toLowerCase() === labelName.toLowerCase()
-                          );
-                          if (colIndex === -1) return 0; // Column not found
+          while (changed && pass < MAX_PASSES) {
+              changed = false;
+              pass++;
+              
+              template.table.columns.forEach((col, idx) => {
+                  if (col.type === 'formula' && col.formula) {
+                      try {
+                          const expr = col.formula.replace(/\[(.*?)\]/g, (match, labelName) => {
+                              const colIndex = template.table.columns.findIndex(c => 
+                                  c.label.toLowerCase() === labelName.toLowerCase()
+                              );
+                              if (colIndex === -1) return 0;
 
-                          const val = values[colIndex];
-                          return typeof val === 'number' ? val : 0;
-                      });
-                      
-                      // Safe Evaluate
-                      if (/^[\d+\-*/().\s]+$/.test(expr) || true) {
-                         const result = new Function(`return (${expr})`)();
-                         const newVal = Number.isFinite(result) ? result : 0;
-                         
-                         // Check if value changed
-                         if (values[idx] !== newVal) {
-                             values[idx] = newVal;
-                             changed = true;
-                         }
+                              const val = values[colIndex];
+                              const numVal = typeof val === 'number' ? val : parseFloat(val);
+                              return isNaN(numVal) ? 0 : numVal;
+                          });
+                          
+                          const result = new Function(`return (${expr})`)();
+                          const newVal = Number.isFinite(result) ? result : 0;
+                          
+                          if (values[idx] !== newVal) {
+                              values[idx] = newVal;
+                              changed = true;
+                          }
+                      } catch (e) {
+                          console.warn("Formula Error", e);
+                          values[idx] = 0;
                       }
-                  } catch (e) {
-                      console.warn("Formula Error", e);
-                      values[idx] = 0;
                   }
-              }
-          });
+              });
+          }
       }
       
       return values;
@@ -164,6 +176,69 @@ export default function TemplatePreview({ template, renderData }) {
        return calculatedRowsData.reduce((acc, rowVals) => {
             return acc + (Number(rowVals[colIdx]) || 0);
        }, 0);
+  };
+
+  // Calculate column aggregate based on function type (sum, sub, mul, avg, max, min)
+  const calculateColumnAggregate = (colKey, funcType) => {
+       const colIdx = template.table.columns.findIndex(c => c.key === colKey);
+       if (colIdx === -1) return 0;
+
+       const values = calculatedRowsData.map(rowVals => Number(rowVals[colIdx]) || 0);
+       if (values.length === 0) return 0;
+
+       switch (funcType) {
+           case 'sum':
+               return values.reduce((acc, val) => acc + val, 0);
+           case 'sub':
+               // Subtraction: negative of the sum
+               return -1 * values.reduce((acc, val) => acc + val, 0);
+           case 'mul':
+               // Multiplication: multiply all values together
+               return values.reduce((acc, val) => acc * val, 1);
+           case 'avg':
+               const sum = values.reduce((acc, val) => acc + val, 0);
+               return sum / values.length;
+           case 'max':
+               return Math.max(...values);
+           case 'min':
+               return Math.min(...values);
+           default:
+               return values.reduce((acc, val) => acc + val, 0);
+       }
+  };
+
+  // Calculate chained aggregations with arithmetic operators
+  const calculateChainedAggregations = (aggregations) => {
+       if (!aggregations || aggregations.length === 0) return 0;
+
+       let result = 0;
+       aggregations.forEach((agg, index) => {
+           const aggValue = calculateColumnAggregate(agg.sourceColumn, agg.function || 'sum');
+           
+           if (index === 0) {
+               result = aggValue;
+           } else {
+               const operator = agg.operator || '+';
+               switch (operator) {
+                   case '+':
+                       result = result + aggValue;
+                       break;
+                   case '-':
+                       result = result - aggValue;
+                       break;
+                   case '*':
+                       result = result * aggValue;
+                       break;
+                   case '/':
+                       result = aggValue !== 0 ? result / aggValue : result;
+                       break;
+                   default:
+                       result = result + aggValue;
+               }
+           }
+       });
+
+       return result;
   };
 
   // Dynamic Grand Total Calculation (matches 'total' column sum or column specified in summary)
@@ -254,10 +329,10 @@ export default function TemplatePreview({ template, renderData }) {
              
              return (
              <div key={field.key} className={`flex ${isRow ? 'flex-row items-baseline gap-2' : 'flex-col'}`}>
-                <span className={`${isBold ? 'font-bold' : 'font-medium'} text-black text-sm tracking-wide ${isRow ? '' : 'mb-0.5'}`}>
+                <span className={`${isBold ? 'font-bold' : 'font-medium'} text-black tracking-wide ${isRow ? '' : 'mb-0.5'}`}>
                     {field.label}{isRow ? ':' : ''}
                 </span> 
-                <span className="text-slate-900 font-medium text-base">
+                <span className="text-slate-900 font-medium">
                      {getFieldValue('header', field.key, 'Custom Val')}
                 </span>
             </div>
@@ -268,7 +343,7 @@ export default function TemplatePreview({ template, renderData }) {
       {/* 2. Bill To / Ship To */}
       <div className="flex justify-between mb-16 gap-12">
         <div className="w-1/2">
-           <h3 className="font-bold text-slate-800 mb-3 border-b pb-1 text-sm uppercase tracking-wide" style={{ borderColor: template.companyDetails.isAccentFilled !== false ? template.companyDetails.accentColor : '#000000' }}>{template.customerDetails.billing.title}</h3>
+           <h3 className="font-bold text-slate-800 mb-3 border-b pb-1 uppercase tracking-wide" style={{ borderColor: template.companyDetails.isAccentFilled !== false ? template.companyDetails.accentColor : '#000000' }}>{template.customerDetails.billing.title}</h3>
            {template.customerDetails.billing.fields.map(field => {
               if (field.visible === false) return null;
               
@@ -289,17 +364,17 @@ export default function TemplatePreview({ template, renderData }) {
                   return (
                       <div key={field.key} className={`flex ${isRow ? 'flex-row gap-2 items-baseline' : 'flex-col'} mb-1`}>
                          {showLabel && (
-                             <div className={`${labelBold ? 'font-bold text-slate-800' : 'text-slate-600'} text-sm ${isRow ? 'min-w-fit' : ''}`}>
+                             <div className={`${labelBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${isRow ? 'min-w-fit' : ''}`}>
                                 {field.label}{isRow ? ':' : ''}
                              </div>
                          )}
-                         <div className="font-bold text-lg text-slate-900">{val}</div>
+                         <div className="font-bold text-slate-900">{val}</div>
                       </div>
                   )
               }
 
               return (
-                  <div key={field.key} className={`flex ${isRow ? 'flex-row gap-2' : 'flex-col'} mb-1 text-slate-600 text-sm`}>
+                  <div key={field.key} className={`flex ${isRow ? 'flex-row gap-2' : 'flex-col'} mb-1 text-slate-600`}>
                      {showLabel && (
                          <div className={`${labelBold ? 'font-bold text-slate-800' : ''} ${isRow ? 'min-w-fit' : ''}`}>
                             {field.label}{isRow ? ':' : ''}
@@ -311,7 +386,7 @@ export default function TemplatePreview({ template, renderData }) {
            })}
         </div>
         <div className="w-1/2">
-           <h3 className="font-bold text-slate-800 mb-3 border-b pb-1 text-sm uppercase tracking-wide" style={{ borderColor: template.companyDetails.isAccentFilled !== false ? template.companyDetails.accentColor : '#000000' }}>{template.customerDetails.shipping.title}</h3>
+           <h3 className="font-bold text-slate-800 mb-3 border-b pb-1 uppercase tracking-wide" style={{ borderColor: template.companyDetails.isAccentFilled !== false ? template.companyDetails.accentColor : '#000000' }}>{template.customerDetails.shipping.title}</h3>
            {template.customerDetails.shipping.fields.map(field => {
               if (field.visible === false) return null;
 
@@ -333,17 +408,17 @@ export default function TemplatePreview({ template, renderData }) {
                   return (
                       <div key={field.key} className={`flex ${isRow ? 'flex-row gap-2 items-baseline' : 'flex-col'} mb-1`}>
                          {showLabel && (
-                             <div className={`${labelBold ? 'font-bold text-slate-800' : 'text-slate-600'} text-sm ${isRow ? 'min-w-fit' : ''}`}>
+                             <div className={`${labelBold ? 'font-bold text-slate-800' : 'text-slate-600'} ${isRow ? 'min-w-fit' : ''}`}>
                                 {field.label}{isRow ? ':' : ''}
                              </div>
                          )}
-                         <div className="font-bold text-lg text-slate-900">{val}</div>
+                         <div className="font-bold text-slate-900">{val}</div>
                       </div>
                   )
               }
 
               return (
-                  <div key={field.key} className={`flex ${isRow ? 'flex-row gap-2' : 'flex-col'} mb-1 text-slate-600 text-sm`}>
+                  <div key={field.key} className={`flex ${isRow ? 'flex-row gap-2' : 'flex-col'} mb-1 text-slate-600`}>
                      {showLabel && (
                          <div className={`${labelBold ? 'font-bold text-slate-800' : ''} ${isRow ? 'min-w-fit' : ''}`}>
                             {field.label}{isRow ? ':' : ''}
@@ -364,7 +439,7 @@ export default function TemplatePreview({ template, renderData }) {
         }}
       >
         <div 
-            className="flex font-bold text-xs uppercase tracking-wider items-stretch" 
+            className="flex font-bold uppercase tracking-wider items-stretch" 
             style={{ 
                 backgroundColor: (template.companyDetails.isAccentFilled !== false) ? template.companyDetails.accentColor : 'transparent',
                 borderBottom: `${template.table.borderWidth || 1}px solid rgba(0, 0, 0, ${template.table.borderOpacity === undefined ? 1 : template.table.borderOpacity})`,
@@ -463,7 +538,7 @@ export default function TemplatePreview({ template, renderData }) {
                         className={`px-2 h-full flex items-center ${col.align === 'right' ? 'justify-end' : (col.align === 'center' ? 'justify-center' : 'justify-start')} ${idx === 0 ? 'pl-4' : ''} ${idx === template.table.columns.length - 1 ? 'pr-4' : ''}`}
                     >
                         {col.label === 'Item & Description' ? (
-                            <div className="text-left w-full">
+                            <div className={`w-full ${col.align === 'right' ? 'text-right' : (col.align === 'center' ? 'text-center' : 'text-left')}`}>
                                     <span className="font-medium text-slate-900 block">{val}</span>
                                     <span className="text-xs text-slate-500">
                                       {renderData && typeof rowsSource[rowIdx] === 'object' 
@@ -519,13 +594,20 @@ export default function TemplatePreview({ template, renderData }) {
             ].map(field => {
                 if(!field.visible) return null;
 
-                // Calculate value based on sourceColumn if present
+                // Calculate value based on aggregations array or legacy sourceColumn
                 let displayValue = '--';
-                if (field.sourceColumn) {
-                    const sum = calculateColumnSum(field.sourceColumn);
+                let aggregateValue = 0;
+                
+                if (field.aggregations && field.aggregations.length > 0) {
+                    // New chained aggregations format
+                    aggregateValue = calculateChainedAggregations(field.aggregations);
+                    displayValue = '₹ ' + aggregateValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                } else if (field.sourceColumn) {
+                    // Legacy single aggregation format
+                    aggregateValue = calculateColumnAggregate(field.sourceColumn, field.function || 'sum');
                     
-                    if (field.sourceColumn === 'quantity') displayValue = sum;
-                    else displayValue = '₹ ' + sum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    if (field.sourceColumn === 'quantity') displayValue = aggregateValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    else displayValue = '₹ ' + aggregateValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 } else if (field.key === 'grand_total') {
                      displayValue = '₹ ' + grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 }

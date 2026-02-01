@@ -277,7 +277,12 @@ export default function InvoiceTemplateBuilder({ templateId, onBack }) {
                     bold: f.bold || false,
                     type: f.type || 'manual',
                     sourceColumn: f.source_column || null,
-                    function: f.function || null
+                    function: f.function || null,
+                    aggregations: f.aggregations ? f.aggregations.map(agg => ({
+                        function: agg.function || 'sum',
+                        sourceColumn: agg.source_column || '',
+                        operator: agg.operator || '+'
+                    })) : null
                 }));
             }
 
@@ -558,16 +563,32 @@ export default function InvoiceTemplateBuilder({ templateId, onBack }) {
                                     // Summary/Totals Section
                                     total: {
                                         fields: template.summary.fields.map(f => {
-                                            // If sourceColumn is set, treat as system type with default 'sum' function
+                                            // Check if field has aggregations array (new format)
+                                            const hasAggregations = f.aggregations && f.aggregations.length > 0;
+                                            // Legacy: If sourceColumn is set, treat as system type with default 'sum' function
                                             const hasSource = !!f.sourceColumn;
-                                            return {
+                                            
+                                            const fieldPayload = {
                                                 key: f.key,
                                                 label: f.label,
                                                 bold: f.bold || false,
-                                                type: hasSource ? 'system' : (f.type || 'manual'),
-                                                source_column: f.sourceColumn || null,
-                                                function: hasSource ? (f.function || 'sum') : null
+                                                type: hasAggregations || hasSource ? 'system' : (f.type || 'manual'),
                                             };
+                                            
+                                            if (hasAggregations) {
+                                                // New aggregations format
+                                                fieldPayload.aggregations = f.aggregations.map(agg => ({
+                                                    function: agg.function || 'sum',
+                                                    source_column: agg.sourceColumn || '',
+                                                    operator: agg.operator || '+'
+                                                }));
+                                            } else if (hasSource) {
+                                                // Legacy single aggregation format
+                                                fieldPayload.source_column = f.sourceColumn || null;
+                                                fieldPayload.function = f.function || 'sum';
+                                            }
+                                            
+                                            return fieldPayload;
                                         })
                                     },
 

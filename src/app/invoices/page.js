@@ -10,7 +10,6 @@ import {
   Search, ArrowUp, ArrowDown, Filter
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
-import TemplatePreview from '@/components/invoice-template/TemplatePreview';
 
 
 export default function InvoicesPage() {
@@ -32,10 +31,7 @@ export default function InvoicesPage() {
   const [dateFilter, setDateFilter] = useState({ start: '', end: '' });
   const [sortConfig, setSortConfig] = useState({ key: 'created_at', direction: 'desc' });
 
-  // Generate / Preview State
-  const [previewData, setPreviewData] = useState(null); // { template, invoiceData }
-  const [showGenerateModal, setShowGenerateModal] = useState(false);
-  const [generatingId, setGeneratingId] = useState(null);
+
 
   // Delete & Notification State
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -203,9 +199,18 @@ export default function InvoicesPage() {
   };
 
   const handleGenerateClick = (invoiceId, templateId) => {
-      // Preview feature coming soon
-      setNotification({ show: true, type: 'info', message: 'Preview page will come soon..' });
-      setTimeout(() => setNotification(p => ({...p, show: false})), 3000);
+      if (!templateId) {
+          setNotification({ show: true, type: 'error', message: 'Invoice does not have a linked template.' });
+          setTimeout(() => setNotification(p => ({...p, show: false})), 3000);
+          return;
+      }
+      
+      // Store IDs in sessionStorage and navigate to preview page
+      if (typeof window !== 'undefined') {
+          sessionStorage.setItem('previewInvoiceId', invoiceId);
+          sessionStorage.setItem('previewTemplateId', templateId);
+          router.push('/invoices/preview');
+      }
   };
 
   const handleDropdownClick = async (e) => {
@@ -687,12 +692,11 @@ export default function InvoicesPage() {
                             <Edit size={18} />
                           </button>
                           <button 
-                            className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-100 rounded-lg transition-all disabled:opacity-50" 
+                            className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-100 rounded-lg transition-all" 
                             title="Generate/Download"
                             onClick={() => handleGenerateClick(inv.invoice_id, inv.template_id)}
-                            disabled={generatingId === inv.invoice_id}
                           >
-                            {generatingId === inv.invoice_id ? <Loader2 size={18} className="animate-spin text-purple-600" /> : <FileDown size={18} />}
+                            <FileDown size={18} />
                           </button>
                           <button 
                             onClick={(e) => {
@@ -747,46 +751,6 @@ export default function InvoicesPage() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Generate / Preview Modal */}
-      {showGenerateModal && previewData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-100 w-full h-full md:w-[95%] md:h-[95%] md:rounded-xl shadow-2xl overflow-hidden flex flex-col">
-              {/* Modal Header */}
-              <div className="bg-white px-6 py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
-                  <div>
-                      <h3 className="text-lg font-bold text-slate-800">Invoice Preview</h3>
-                      <p className="text-sm text-slate-500">Previewing generated invoice document</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                      <button className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors shadow-sm">
-                          <FileDown size={18} />
-                          Download PDF
-                      </button>
-                      <button 
-                          onClick={() => {
-                              setShowGenerateModal(false);
-                              setPreviewData(null);
-                          }}
-                          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                      >
-                          <X size={24} />
-                      </button>
-                  </div>
-              </div>
-              
-              {/* Modal Content - Scrollable Preview */}
-              <div className="flex-1 overflow-auto p-4 md:p-8 flex justify-center bg-slate-100">
-                  <div className="shadow-2xl">
-                    <TemplatePreview 
-                        template={previewData.template} 
-                        data={previewData.invoiceData} 
-                    />
-                  </div>
-              </div>
           </div>
         </div>
       )}

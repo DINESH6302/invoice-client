@@ -29,9 +29,9 @@ export default function AppLayout({ children }) {
   const showHeader = !isPreviewPage;
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="h-screen overflow-hidden">
         <Sidebar />
-        <div className="flex-1 flex flex-col ml-56 h-screen">
+        <div className="flex flex-col ml-56 h-screen">
             {showHeader && <Header />}
             <main className={`${showHeader ? 'mt-16' : ''} bg-slate-50 flex-1 overflow-y-auto relative`}>
                 {children}
