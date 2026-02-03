@@ -22,6 +22,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import FormulaInput from './FormulaInput';
 
 function SortableRow({ id, children, className }) {
   const {
@@ -45,6 +46,209 @@ function SortableRow({ id, children, className }) {
       {children(listeners, attributes)}
     </div>
   );
+}
+
+
+function TableColumnFormulaEditor({ col, idx, template, handleColumnChange }) {
+    const formulaInputRef = useRef(null);
+    return (
+        <div className="mt-3 pl-8">
+           <div className="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-3">
+              <div className="flex justify-between items-center">
+                  <Label className="text-xs font-semibold text-slate-700">Formula Expression</Label>
+              </div>
+              
+              <div className="relative">
+                  <FormulaInput 
+                    ref={formulaInputRef}
+                    value={col.formula || ''}
+                    onChange={(val) => handleColumnChange(idx, 'formula', val)}
+                    placeholder="([Quantity] * [Price]) / 100"
+                    className="h-auto text-xs font-mono bg-white"
+                  />
+                  {/* Strict Column Validator Feedback */}
+                  {col.formula && (() => {
+                      let temp = col.formula;
+                      const errors = [];
+                      
+                      // 1. Check for forbidden aggregations in row context
+                      // Row formulas calculate per-item. SUM() implies vertical aggregation which is not supported in row cells.
+                      if(/(SUM|AVG|MIN|MAX)\s*\(/.test(temp)) {
+                          errors.push("Aggregations (SUM/AVG) not allowed in row formulas");
+                      } 
+
+                      // 2. Extract & Validate Columns
+                      const matches = temp.match(/\[(.*?)\]/g) || [];
+                      const vars = matches.map(m => m.slice(1, -1));
+                      
+                      const invalidVars = vars.filter(vLabel => {
+                          // Match against labels case-insensitively
+                          return !template.table.columns.some(c => (c.label || '').toLowerCase() === vLabel.toLowerCase());
+                      });
+                      
+                      if (invalidVars.length > 0) {
+                          invalidVars.forEach(v => errors.push(`Unknown column: ${v}`));
+                      }
+
+                      // 3. Check Self-Reference
+                      if (col.label && vars.some(v => v.toLowerCase() === col.label.toLowerCase())) {
+                          errors.push("Circular reference: Formula refers to itself");
+                      }
+
+                      // 4. Syntax Check
+                      try {
+                          // Mock columns as '(1)' to catch adjacent variable errors like [a][b] -> (1)(1) which throws error
+                          const safeExpr = temp
+                            .replace(/(SUM|AVG|MIN|MAX)\s*\((.*?)\)/gi, '(1)') 
+                            .replace(/\[(.*?)\]/g, '(1)');
+                          
+                          new Function(`return (${safeExpr})`)();
+                      } catch (e) {
+                          errors.push("Invalid expression syntax (missing operator?)");
+                      }
+                      
+                      if (errors.length > 0) {
+                          return (
+                             <div className="mt-1 space-y-0.5">
+                                 {errors.slice(0,3).map((err, i) => (
+                                     <p key={i} className="text-[10px] text-red-500 font-medium flex items-center gap-1">✕ {err}</p>
+                                 ))}
+                             </div>
+                          );
+                      }
+                      return <p className="text-[10px] text-green-600 mt-1 font-medium flex items-center gap-1">✓ Valid Expression</p>;
+                  })()}
+
+              </div>
+
+              <div>
+                 <Label className="text-[10px] text-muted-foreground mb-1.5 block">Available Columns</Label>
+                 <div className="flex flex-wrap gap-1.5">
+                    {template.table.columns.map((rCol, rIdx) => {
+                        if(rIdx === idx) return null; // Don't show self
+                        // Filter: Only show Number or Formula columns
+                        if (rCol.type !== 'number' && rCol.type !== 'formula') return null;
+
+                        const labelName = rCol.label || rCol.key;
+                        return (
+                            <Button
+                                key={rCol.key}
+                                variant="outline"
+                                size="sm"
+                                className="h-6 px-2 text-[10px] bg-blue-50/50 text-blue-700 hover:bg-blue-50 border-blue-200"
+                                onClick={() => {
+                                    formulaInputRef.current?.insertTag(labelName);
+                                }}
+                            >
+                                {labelName}
+                            </Button>
+                        );
+                    })}
+                 </div>
+              </div>
+           </div>
+        </div>
+    );
+}
+
+function SummaryFieldEditor({ field, idx, template, setTemplate, handleFieldChange }) {
+    const formulaInputRef = useRef(null);
+    return (
+        <div className="pt-2 space-y-2">
+            <Label className="text-[10px] text-muted-foreground">Formula</Label>
+            <FormulaInput 
+                ref={formulaInputRef}
+                value={field.formula || ''}
+                onChange={(val) => handleFieldChange('summary', idx, 'formula', val)}
+                placeholder="e.g. SUM([Quantity])"
+                className="h-auto text-xs font-mono bg-slate-50"
+            />
+            {/* Strict Validation Feedback */}
+            {field.formula && (() => {
+                 let temp = field.formula;
+                 const errors = [];
+                 
+                 // 1. Validate Columns inside Aggregates
+                 temp = temp.replace(/(SUM|AVG|MIN|MAX)\s*\(\s*\[(.*?)\]\s*\)/gi, (match, func, colName) => {
+                     const col = template.table.columns.find(c => 
+                         (c.label || '').toLowerCase() === colName.toLowerCase() || 
+                         c.key === colName
+                     );
+                     if(!col) {
+                         errors.push(`Unknown column '${colName}' in ${func}`);
+                     }
+                     return '1';
+                 });
+
+                 // 2. Validate Naked Columns (Not allowed)
+                 const naked = temp.match(/\[(.*?)\]/g);
+                 if(naked) {
+                     naked.forEach(n => errors.push(`Column ${n} must be inside an aggregate function`));
+                     temp = temp.replace(/\[(.*?)\]/g, '1');
+                 }
+                 
+                 // 3. Syntax Check
+                 try {
+                     new Function(`return (${temp})`)();
+                 } catch(e) {
+                     errors.push("Invalid expression syntax");
+                 }
+                 
+                 if(errors.length > 0) {
+                     return (
+                         <div className="mt-1 space-y-0.5">
+                             {errors.slice(0,3).map((err, i) => (
+                                 <p key={i} className="text-[10px] text-red-500 font-medium flex items-center gap-1">✕ {err}</p>
+                             ))}
+                         </div>
+                     );
+                 }
+                 return <p className="text-[10px] text-green-600 mt-1 font-medium flex items-center gap-1">✓ Valid Formula</p>;
+            })()}
+            
+            <div className="space-y-3 pt-1">
+                <div>
+                <Label className="text-[10px] text-muted-foreground block mb-1.5 font-medium">Aggregations</Label>
+                <div className="flex flex-wrap gap-1.5">
+                    {['SUM', 'AVG', 'MIN', 'MAX'].map(func => (
+                        <Button
+                            key={func}
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] bg-white hover:bg-slate-50 font-mono"
+                            onClick={() => {
+                                formulaInputRef.current?.insertText(`${func}(`);
+                            }}
+                        >
+                            {func}
+                        </Button>
+                    ))}
+                </div>
+                </div>
+                
+                <div>
+                <Label className="text-[10px] text-muted-foreground block mb-1.5 font-medium">Available Columns</Label>
+                <div className="flex flex-wrap gap-1.5">
+                    {template.table.columns
+                        .filter(col => col.type === 'number' || col.type === 'formula') 
+                        .map(col => (
+                        <Button
+                            key={col.key}
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] bg-blue-50/50 text-blue-700 hover:bg-blue-50 border-blue-200"
+                            onClick={() => {
+                                formulaInputRef.current?.insertTag(col.label || col.key);
+                            }}
+                        >
+                            {col.label || col.key}
+                        </Button>
+                    ))}
+                </div>
+                </div>
+            </div>
+        </div>
+    );
 }
 
 export default function EditPanel({ activeSection, template, setTemplate }) {
@@ -873,100 +1077,12 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
             </div>
             
             {col.type === 'formula' && (
-            <div className="mt-3 pl-8">
-               <div className="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-3">
-                  <div className="flex justify-between items-center">
-                      <Label className="text-xs font-semibold text-slate-700">Formula Expression</Label>
-                  </div>
-                  
-                  <div className="relative">
-                      <Input 
-                        value={col.formula || ''}
-                        onChange={(e) => {
-                            handleColumnChange(idx, 'formula', e.target.value);
-                        }}
-                        onKeyDown={(e) => {
-                           if (e.key === 'Backspace') {
-                               const cursor = e.currentTarget.selectionStart;
-                               const selectionEnd = e.currentTarget.selectionEnd;
-                               
-                               // Only activate smart delete if no text is selected (cursor is a single line)
-                               if (cursor === selectionEnd && cursor > 0) {
-                                   const val = col.formula || '';
-                                   // Check if the character being deleted is a closing bracket ']'
-                                   if (val[cursor - 1] === ']') {
-                                       // Find the corresponding opening bracket backwords
-                                       const openBracket = val.lastIndexOf('[', cursor - 1);
-                                       if (openBracket !== -1) {
-                                            // Ensure there are no other closing brackets in between (to prevent deleting multiple tokens)
-                                            const tokenContent = val.slice(openBracket, cursor);
-                                            // tokenContent is something like "[Qty]"
-                                            if (tokenContent.indexOf(']') === tokenContent.length - 1) {
-                                                e.preventDefault();
-                                                const newVal = val.slice(0, openBracket) + val.slice(cursor);
-                                                handleColumnChange(idx, 'formula', newVal);
-                                                
-                                                // Adjust cursor position after update
-                                                const target = e.target;
-                                                requestAnimationFrame(() => {
-                                                    target.setSelectionRange(openBracket, openBracket);
-                                                    target.focus();
-                                                });
-                                            }
-                                       }
-                                   }
-                               }
-                           }
-                        }}
-                        placeholder="([Quantity] * [Price]) / 100"
-                        className="font-mono text-sm tracking-wide bg-white"
-                      />
-                      {/* Simple Validator Feedback */}
-                      {col.formula && (() => {
-                          // Extract variables (Everything in [ ])
-                          const matches = col.formula.match(/\[(.*?)\]/g) || [];
-                          const vars = matches.map(m => m.slice(1, -1)); // Remove brackets
-                          
-                          // Check if variables exist in table by Label
-                          const invalidVars = vars.filter(vLabel => {
-                              return !template.table.columns.some(c => c.label === vLabel);
-                          });
-                          
-                          if (invalidVars.length > 0) {
-                              return <p className="text-[10px] text-red-500 mt-1 font-medium">Unknown columns: {invalidVars.join(', ')}</p>;
-                          }
-                          return <p className="text-[10px] text-green-600 mt-1 font-medium flex items-center gap-1">✓ Valid Expression</p>;
-                      })()}
-                  </div>
-
-                  <div>
-                     <Label className="text-[10px] text-muted-foreground mb-1.5 block">Available Columns</Label>
-                     <div className="flex flex-wrap gap-2">
-                        {template.table.columns.map((rCol, rIdx) => {
-                            if(rIdx === idx) return null; // Don't show self
-                            // Filter: Only show Number or Formula columns
-                            if (rCol.type !== 'number' && rCol.type !== 'formula') return null;
-
-                            const labelName = rCol.label || rCol.key;
-                            return (
-                                <button
-                                    key={rCol.key}
-                                    onClick={() => {
-                                        const current = col.formula || '';
-                                        // Add space if needed?
-                                        handleColumnChange(idx, 'formula', current + `[${labelName}]`);
-                                    }}
-                                    className="flex items-center gap-1.5 px-2 py-1 bg-white border border-slate-200 rounded text-[10px] hover:border-blue-400 hover:text-blue-600 transition-colors shadow-sm"
-                                    title={`Insert [${labelName}]`}
-                                >
-                                    <span className="font-bold text-slate-700 bg-slate-100 px-1 rounded-sm flex items-center justify-center">[{labelName}]</span>
-                                </button>
-                            );
-                        })}
-                     </div>
-                  </div>
-               </div>
-            </div>
+                <TableColumnFormulaEditor 
+                    col={col} 
+                    idx={idx} 
+                    template={template} 
+                    handleColumnChange={handleColumnChange} 
+                />
             )}
             
             {/* Legacy Number specific options removed */}
@@ -1272,8 +1388,8 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
         </div>
     </div>
   );
-  
-  const renderSummary = () => (
+
+    const renderSummary = () => (
     <div className="space-y-6">
        <div className="p-4 bg-card border rounded-lg shadow-sm space-y-4">
            {/* Header */}
@@ -1340,112 +1456,52 @@ export default function EditPanel({ activeSection, template, setTemplate }) {
                             className="h-7 text-xs"
                         />
                     </div>
+                    
+                    {/* Unique Identifier Dropdown */}
+                    {(() => {
+                        const types = ['Total', 'Quantity', 'Tax'];
+                        const current = field.summaryType || field.analytics_column || "";
+                        // Get types used by OTHER fields
+                        const used = template.summary.fields
+                            .filter((_, i) => i !== idx)
+                            .map(f => f.summaryType || f.analytics_column)
+                            .filter(Boolean);
+                        
+                        const available = types.filter(t => !used.includes(t));
+                        
+                        if (current || available.length > 0) {
+                            return (
+                                <div className="space-y-1">
+                                    <Label className="text-[10px] text-muted-foreground">Analytics Column</Label>
+                                    <div className="relative">
+                                        <select
+                                            value={current}
+                                            onChange={(e) => handleFieldChange('summary', idx, 'summaryType', e.target.value)}
+                                            className="flex h-7 w-full rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm ring-offset-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 appearance-none"
+                                        >
+                                            <option value="">None</option>
+                                            {available.map(t => (
+                                                <option key={t} value={t}>{t}</option>
+                                            ))}
+                                            {current && !available.includes(current) && <option value={current}>{current}</option>}
+                                        </select>
+                                        <ChevronDown className="absolute right-2 top-2 h-3.5 w-3.5 text-muted-foreground pointer-events-none opacity-50" />
+                                    </div>
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
                  </div>
 
-                 {/* Aggregations Section */}
-                 <div className="pt-2 space-y-2">
-                    <div className="flex items-center justify-between">
-                        <Label className="text-[10px] text-muted-foreground">Aggregations</Label>
-                        <Button 
-                            size="sm"
-                            variant="outline"
-                            className="h-6 text-xs px-2"
-                            onClick={() => {
-                                const newT = JSON.parse(JSON.stringify(template));
-                                if (!newT.summary.fields[idx].aggregations) {
-                                    // Migrate from legacy format
-                                    newT.summary.fields[idx].aggregations = field.sourceColumn 
-                                        ? [{ function: field.function || 'sum', sourceColumn: field.sourceColumn, operator: '+' }]
-                                        : [];
-                                }
-                                newT.summary.fields[idx].aggregations.push({ function: 'sum', sourceColumn: '', operator: '+' });
-                                setTemplate(newT);
-                            }}
-                        >
-                            <Plus className="w-3 h-3 mr-1" /> Add
-                        </Button>
-                    </div>
-                    
-                    {(field.aggregations || [{ function: field.function || 'sum', sourceColumn: field.sourceColumn || '', operator: '+' }]).map((agg, aggIdx) => (
-                        <div key={aggIdx} className="flex items-center gap-2 p-2 bg-slate-50 rounded border">
-                            {aggIdx > 0 && (
-                                <select
-                                    className="h-7 w-12 rounded-md border border-input bg-background px-1 text-xs text-center"
-                                    value={agg.operator || '+'}
-                                    onChange={(e) => {
-                                        const newT = JSON.parse(JSON.stringify(template));
-                                        if (!newT.summary.fields[idx].aggregations) {
-                                            newT.summary.fields[idx].aggregations = [{ function: field.function || 'sum', sourceColumn: field.sourceColumn || '', operator: '+' }];
-                                        }
-                                        newT.summary.fields[idx].aggregations[aggIdx].operator = e.target.value;
-                                        setTemplate(newT);
-                                    }}
-                                >
-                                    <option value="+">+</option>
-                                    <option value="-">−</option>
-                                    <option value="*">×</option>
-                                    <option value="/">÷</option>
-                                </select>
-                            )}
-                            <select 
-                                className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs"
-                                value={agg.function || 'sum'}
-                                onChange={(e) => {
-                                    const newT = JSON.parse(JSON.stringify(template));
-                                    if (!newT.summary.fields[idx].aggregations) {
-                                        newT.summary.fields[idx].aggregations = [{ function: field.function || 'sum', sourceColumn: field.sourceColumn || '', operator: '+' }];
-                                    }
-                                    newT.summary.fields[idx].aggregations[aggIdx].function = e.target.value;
-                                    setTemplate(newT);
-                                }}
-                            >
-                                <option value="sum">Sum</option>
-                                <option value="sub">Sub</option>
-                                <option value="mul">Mul</option>
-                                <option value="avg">Avg</option>
-                                <option value="max">Max</option>
-                                <option value="min">Min</option>
-                            </select>
-                            <select 
-                                className="h-7 flex-1 rounded-md border border-input bg-background px-2 text-xs"
-                                value={agg.sourceColumn || ''}
-                                onChange={(e) => {
-                                    const newT = JSON.parse(JSON.stringify(template));
-                                    if (!newT.summary.fields[idx].aggregations) {
-                                        newT.summary.fields[idx].aggregations = [{ function: field.function || 'sum', sourceColumn: field.sourceColumn || '', operator: '+' }];
-                                    }
-                                    newT.summary.fields[idx].aggregations[aggIdx].sourceColumn = e.target.value;
-                                    setTemplate(newT);
-                                }}
-                            >
-                                <option value="">Column</option>
-                                {template.table.columns
-                                    .filter(col => col.type === 'number' || col.type === 'formula')
-                                    .map(col => (
-                                    <option key={col.key} value={col.key}>
-                                        {col.label}
-                                    </option>
-                                ))}
-                            </select>
-                            {(field.aggregations?.length > 1 || aggIdx > 0) && (
-                                <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-6 w-6 text-red-400 hover:text-red-600"
-                                    onClick={() => {
-                                        const newT = JSON.parse(JSON.stringify(template));
-                                        if (newT.summary.fields[idx].aggregations && newT.summary.fields[idx].aggregations.length > 1) {
-                                            newT.summary.fields[idx].aggregations.splice(aggIdx, 1);
-                                            setTemplate(newT);
-                                        }
-                                    }}
-                                >
-                                    <Trash2 className="w-3 h-3" />
-                                </Button>
-                            )}
-                        </div>
-                    ))}
-                 </div>
+                 {/* Calculator / Formula Section */}
+                 <SummaryFieldEditor 
+                    field={field} 
+                    idx={idx} 
+                    template={template} 
+                    setTemplate={setTemplate} 
+                    handleFieldChange={handleFieldChange} 
+                 />
 
                  {/* Style Toggles */}
                  <div className="flex items-center justify-between pt-2">

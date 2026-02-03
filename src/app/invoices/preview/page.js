@@ -13,6 +13,27 @@ export default function InvoicePreviewPage() {
   const [previewData, setPreviewData] = useState(null);
   const [zoom, setZoom] = useState(70);
   const dataFetchedRef = useRef(false);
+  
+  // For calculating scaled container size
+  const containerRef = useRef(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerSize({
+          width: entry.target.offsetWidth,
+          height: entry.target.offsetHeight
+        });
+      }
+    });
+    
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [previewData]);
 
   useEffect(() => {
     if (dataFetchedRef.current) return;
@@ -386,14 +407,24 @@ export default function InvoicePreviewPage() {
 
       {/* Preview Container */}
       <div className="flex-1 overflow-auto p-8 pb-6 flex flex-col items-center">
-        <div
-          className="shadow-2xl print:shadow-none bg-white transition-transform origin-top"
-          style={{ transform: `scale(${zoom / 100})` }}
+        <div 
+          style={{
+            width: containerSize.width > 0 ? containerSize.width * (zoom / 100) : 'auto',
+            height: containerSize.height > 0 ? containerSize.height * (zoom / 100) : 'auto',
+            transition: 'width 0.2s, height 0.2s',
+            flexShrink: 0 // Prevent crushing
+          }}
         >
-          <TemplatePreview
-            template={previewData.template}
-            renderData={previewData.renderData}
-          />
+          <div
+            ref={containerRef}
+            className="shadow-2xl print:shadow-none bg-white transition-transform origin-top-left"
+            style={{ transform: `scale(${zoom / 100})`, width: 'fit-content' }}
+          >
+            <TemplatePreview
+              template={previewData.template}
+              renderData={previewData.renderData}
+            />
+          </div>
         </div>
       </div>
 

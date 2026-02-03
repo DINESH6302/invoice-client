@@ -7,7 +7,7 @@ import {
   Plus, ChevronDown, Star, FileText, Edit, Trash2, 
   FileDown, Eye, Loader2, Calendar, User, CreditCard, 
   MapPin, ChevronUp, Save, ArrowLeft, CheckCircle, AlertCircle, X, AlertTriangle,
-  Search, ArrowUp, ArrowDown, Filter
+  Search, ArrowUp, ArrowDown, Filter, MoreVertical, Copy
 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
@@ -37,6 +37,23 @@ export default function InvoicesPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [notification, setNotification] = useState({ show: false, type: '', message: '' });
+  
+  // Action Dropdown specific
+  const [activeActionDropdown, setActiveActionDropdown] = useState(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (activeActionDropdown && 
+          !event.target.closest('.dropdown-menu-content') && 
+          !event.target.closest('.dropdown-trigger-btn')) {
+        setActiveActionDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [activeActionDropdown]);
 
 
 
@@ -231,6 +248,56 @@ export default function InvoicesPage() {
         }
     } else {
         setShowDropdown(false);
+    }
+  };
+
+  const handleDuplicate = async (invId) => {
+    try {
+        const res = await apiFetch(`/invoices/${invId}/duplicate`, {
+            method: 'POST'
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            setNotification({
+                show: true,
+                type: 'success',
+                message: data.message || 'Invoice duplicated successfully.'
+            });
+            
+            // Auto-navigate to the new duplicate
+            const newInvoice = data.data || data;
+            const newId = newInvoice.invoice_id || newInvoice.id;
+            
+            if (newId) {
+                 if (typeof window !== 'undefined') {
+                    sessionStorage.setItem('editInvoiceId', newId);
+                    sessionStorage.setItem('isDuplicate', 'true');
+                    setTimeout(() => {
+                        router.push('/invoices/edit');
+                    }, 500);
+                }
+            } else {
+                 fetchInvoices();
+            }
+
+        } else {
+            setNotification({
+                show: true,
+                type: 'error',
+                message: data.message || 'Failed to duplicate invoice.'
+            });
+        }
+    } catch (error) {
+        console.error("Duplicate error", error);
+        setNotification({
+            show: true,
+            type: 'error',
+            message: 'An unexpected error occurred while duplicating.'
+        });
+    } finally {
+        setTimeout(() => setNotification(prev => ({ ...prev, show: false })), 3000);
     }
   };
 
@@ -632,7 +699,7 @@ export default function InvoicesPage() {
                                 </div>
                           </td>
                       </tr>
-                  ) : filteredInvoices.map((inv) => (
+                  ) : filteredInvoices.map((inv, index) => (
                     <tr 
                       key={inv.invoice_id} 
                       className={`hover:bg-slate-100 transition-colors group ${selectedInvoices.includes(inv.invoice_id) ? 'bg-blue-50/50' : ''}`}
@@ -682,32 +749,29 @@ export default function InvoicesPage() {
                           {inv.invoice_status}
                         </span>
                       </td>
-                      <td className="pl-2 py-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <button 
-                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-all" 
-                            title="Edit Invoice"
-                            onClick={() => handleEditClick(inv.invoice_id)}
-                          >
-                            <Edit size={18} />
-                          </button>
-                          <button 
-                            className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-100 rounded-lg transition-all" 
-                            title="Generate/Download"
-                            onClick={() => handleGenerateClick(inv.invoice_id, inv.template_id)}
-                          >
-                            <FileDown size={18} />
-                          </button>
+                      <td className="pl-2 py-4 text-center action-dropdown-container">
+                         <div className="relative inline-flex items-center justify-center">
                           <button 
                             onClick={(e) => {
                                 e.stopPropagation();
-                                setInvoiceToDelete(inv.invoice_id);
-                                setShowDeleteConfirm(true); 
+                                if (activeActionDropdown === inv.invoice_id) {
+                                    setActiveActionDropdown(null);
+                                } else {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    setDropdownPos({
+                                        top: rect.bottom + 5,
+                                        right: window.innerWidth - rect.right
+                                    });
+                                    setActiveActionDropdown(inv.invoice_id);
+                                }
                             }}
-                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" 
-                            title="Delete Invoice"
+                            className={`p-2 rounded-full transition-all dropdown-trigger-btn ${
+                                activeActionDropdown === inv.invoice_id 
+                                    ? 'bg-blue-100 text-blue-600' 
+                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                            }`}
                           >
-                            <Trash2 size={18} />
+                            <MoreVertical size={18} />
                           </button>
                         </div>
                       </td>
@@ -719,6 +783,58 @@ export default function InvoicesPage() {
           </div>
         </div>
       </div>
+
+      {/* Global Action Dropdown - Fixed Position */}
+      {activeActionDropdown && (() => {
+          const inv = invoices.find(i => i.invoice_id === activeActionDropdown);
+          if (!inv) return null;
+          return (
+            <div 
+                className="fixed bg-white rounded-lg shadow-xl border border-slate-100 z-[100] overflow-hidden dropdown-menu-content animate-in fade-in zoom-in-95 duration-100 w-48"
+                style={{ 
+                    top: dropdownPos.top, 
+                    right: dropdownPos.right 
+                }}
+            >
+                <div className="py-1">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveActionDropdown(null); handleEditClick(inv.invoice_id); }}
+                        className="flex w-full items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors gap-2"
+                    >
+                        <Edit size={16} className="text-blue-500" />
+                        Edit
+                    </button>
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveActionDropdown(null); handleGenerateClick(inv.invoice_id, inv.template_id); }}
+                        className="flex w-full items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors gap-2"
+                    >
+                        <FileDown size={16} className="text-purple-500" />
+                        Generate PDF
+                    </button>
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveActionDropdown(null); handleDuplicate(inv.invoice_id); }}
+                        className="flex w-full items-center px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors gap-2"
+                    >
+                        <Copy size={16} className="text-indigo-500" />
+                        Duplicate
+                    </button>
+                    <div className="h-px bg-slate-100 my-1"></div>
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveActionDropdown(null);
+                            setInvoiceToDelete(inv.invoice_id);
+                            setShowDeleteConfirm(true); 
+                        }}
+                        className="flex w-full items-center px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors gap-2"
+                    >
+                        <Trash2 size={16} />
+                        Delete
+                    </button>
+                </div>
+            </div>
+          );
+      })()}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (

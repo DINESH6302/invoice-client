@@ -109,7 +109,7 @@ export default function TemplatePreview({ template, renderData }) {
           const rowNum = rowItem;
           if (col.label === 'S.No') return rowNum;
           if (col.label === 'Item & Description') return "Premium Product Name";
-          if (col.type === 'number') return rowNum * 100;
+          if (col.type === 'number') return rowNum * 2.5;
           
           // For formula columns in dummy mode, calculate them
           if (col.type === 'formula') return 0; // Will be calculated below
@@ -598,7 +598,29 @@ export default function TemplatePreview({ template, renderData }) {
                 let displayValue = '--';
                 let aggregateValue = 0;
                 
-                if (field.aggregations && field.aggregations.length > 0) {
+                if (field.formula) {
+                    try {
+                         let expr = field.formula;
+                         // Replace functions like SUM([Qty])
+                         expr = expr.replace(/(SUM|AVG|MIN|MAX)\s*\(\s*\[(.*?)\]\s*\)/gi, (match, func, colName) => {
+                             const col = template.table.columns.find(c => 
+                                 (c.label || '').toLowerCase() === colName.toLowerCase() || 
+                                 c.key === colName
+                             );
+                             if (!col) return 0;
+                             return calculateColumnAggregate(col.key, func.toLowerCase());
+                         });
+                         
+                         // Result can be evaluated
+                         // Filter out potentially dangerous characters, though new Function is used
+                         const result = new Function(`return (${expr})`)();
+                         aggregateValue = Number.isFinite(result) ? result : 0;
+                         displayValue = '₹ ' + aggregateValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    } catch (e) {
+                         // console.warn("Formula Error", e);
+                         displayValue = 'Error';
+                    }
+                } else if (field.aggregations && field.aggregations.length > 0) {
                     // New chained aggregations format
                     aggregateValue = calculateChainedAggregations(field.aggregations);
                     displayValue = '₹ ' + aggregateValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

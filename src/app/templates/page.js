@@ -11,6 +11,7 @@ import {
   CheckCircle,
   AlertCircle,
   Star,
+  Copy,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -165,6 +166,30 @@ export default function TemplatesPage() {
     if (typeof window !== 'undefined') {
         sessionStorage.setItem('editTemplateId', id);
         router.push(`/templates/edit`);
+    }
+  };
+
+  const handleDuplicate = async (id, e) => {
+    e.stopPropagation();
+    setOpenDropdownId(null);
+    
+    try {
+      const response = await apiFetch(`/templates/${id}/duplicate`, { method: "POST" });
+      
+      if (response.ok || response.status === 201) {
+          setApiResponse({ type: "success", message: "Template duplicated successfully" });
+          fetchTemplates();
+      } else {
+          const resText = await response.text();
+          let msg = "Failed to duplicate template";
+          try {
+              const json = JSON.parse(resText);
+              msg = json.message || msg;
+          } catch(e) {}
+          setApiResponse({ type: "error", message: msg });
+      }
+    } catch (err) {
+        setApiResponse({ type: "error", message: "Network error occurred" });
     }
   };
 
@@ -349,7 +374,13 @@ export default function TemplatesPage() {
                       }}
                       className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600"
                     >
-                      <Edit size={14} /> Edit
+                      <Edit size={14} className="text-blue-500" /> Edit
+                    </button>
+                    <button
+                      onClick={(e) => handleDuplicate(template.template_id, e)}
+                      className="flex items-center gap-2 w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600"
+                    >
+                      <Copy size={14} className="text-indigo-500" /> Duplicate
                     </button>
                     <button
                       onClick={(e) => handleOpenDelete(template.template_id, e)}

@@ -270,20 +270,42 @@ export default function InvoiceTemplateBuilder({ templateId, onBack }) {
             // 5. Summary / Totals
             const summary = data.summary || data.total;
             if (summary && Array.isArray(summary.fields)) {
-                newT.summary.fields = summary.fields.map(f => ({
-                    key: f.key,
-                    label: f.label,
-                    visible: f.visible !== false,
-                    bold: f.bold || false,
-                    type: f.type || 'manual',
-                    sourceColumn: f.source_column || null,
-                    function: f.function || null,
-                    aggregations: f.aggregations ? f.aggregations.map(agg => ({
+                newT.summary.fields = summary.fields.map(f => {
+                    // Helper to reconstruct formula from aggregations
+                    const reconstructFormula = (aggs) => {
+                        if (!aggs || aggs.length === 0) return '';
+                        return aggs.map((a, i) => {
+                             const op = i === 0 && a.operator === '+' ? '' : (a.operator || '+'); // Hide leading '+'
+                             const func = (a.function || 'SUM').toUpperCase();
+                             // Find Column Label by key
+                             let label = a.source_column || a.sourceColumn;
+                             // Try to find label in items table columns
+                             const col = newT.table.columns.find(c => c.key === label);
+                             if (col) label = col.label;
+                             
+                             return `${op} ${func}([${label}])`;
+                        }).join(' ').trim();
+                    };
+
+                    const loadedAggs = f.aggregations ? f.aggregations.map(agg => ({
                         function: agg.function || 'sum',
                         sourceColumn: agg.source_column || '',
                         operator: agg.operator || '+'
-                    })) : null
-                }));
+                    })) : null;
+
+                    return {
+                        key: f.key,
+                        label: f.label,
+                        visible: f.visible !== false,
+                        bold: f.bold || false,
+                        type: f.type || 'manual',
+                        sourceColumn: f.source_column || null,
+                        function: f.function || null,
+                        summaryType: f.analytics_column || "",
+                        aggregations: loadedAggs,
+                        formula: f.formula || reconstructFormula(loadedAggs) // Use stored or reconstructed formula
+                    };
+                });
             }
 
             // 6. Footer
@@ -563,24 +585,72 @@ export default function InvoiceTemplateBuilder({ templateId, onBack }) {
                                     // Summary/Totals Section
                                     total: {
                                         fields: template.summary.fields.map(f => {
+                                            // Helper to parse formula string to aggregations
+                                            const parseFormula = (formula) => {
+                                                const aggs = [];
+                                                if (!formula) return aggs;
+                                                
+                                                // Find all aggregations like SUM([Col]), AVG([Col])
+                                                // Simplified parser - assumes format like: SUM([Col1]) + SUM([Col2])
+                                                // It captures function, column, and preceding operator
+                                                
+                                                // First, normalize by removing spaces
+                                                // But we need to keep operators.
+                                                
+                                                // Using regex to find occurrences
+                                                // Match: (operator?)(function)([Column])
+                                                const regex = /([+\-*/]?)\s*(SUM|AVG|MIN|MAX)\s*\(\s*\[(.*?)\]\s*\)/gi;
+                                                let match;
+                                                
+                                                while ((match = regex.exec(formula)) !== null) {
+                                                    const operator = match[1] || '+'; // Default to + if first or missing
+                                                    const func = match[2].toLowerCase();
+                                                    const colLabel = match[3];
+                                                    
+                                                    // Find column key map
+                                                    const col = template.table.columns.find(c => 
+                                                        (c.label || '').toLowerCase() === colLabel.toLowerCase() || 
+                                                        c.key === colLabel
+                                                    );
+                                                    
+                                                    if (col) {
+                                                        aggs.push({
+                                                            function: func,
+                                                            source_column: col.key, // Use Key not Label
+                                                            operator: operator
+                                                        });
+                                                    }
+                                                }
+                                                return aggs;
+                                            };
+
+                                            // Determine aggregations: explicit array OR parsed from formula
+                                            let finalAggregations = [];
+                                            if (f.formula) {
+                                                finalAggregations = parseFormula(f.formula);
+                                            } else if (f.aggregations && f.aggregations.length > 0) {
+                                                finalAggregations = f.aggregations;
+                                            }
+
                                             // Check if field has aggregations array (new format)
-                                            const hasAggregations = f.aggregations && f.aggregations.length > 0;
-                                            // Legacy: If sourceColumn is set, treat as system type with default 'sum' function
-                                            const hasSource = !!f.sourceColumn;
+                                            const hasAggregations = finalAggregations.length > 0;
+                                            // Legacy: If sourceColumn is set AND no new aggregations, treat as legacy
+                                            const hasSource = !!f.sourceColumn && !hasAggregations;
                                             
                                             const fieldPayload = {
                                                 key: f.key,
                                                 label: f.label,
                                                 bold: f.bold || false,
                                                 type: hasAggregations || hasSource ? 'system' : (f.type || 'manual'),
+                                                analytics_column: f.summaryType || null
                                             };
                                             
                                             if (hasAggregations) {
                                                 // New aggregations format
-                                                fieldPayload.aggregations = f.aggregations.map(agg => ({
+                                                fieldPayload.aggregations = finalAggregations.map(agg => ({
                                                     function: agg.function || 'sum',
-                                                    source_column: agg.sourceColumn || '',
-                                                    operator: agg.operator || '+'
+                                                    source_column: agg.source_column || agg.sourceColumn || '',
+                                                    operator: agg.operator === '/' ? '/' : (agg.operator === '*' ? '*' : (agg.operator === '-' ? '-' : '+'))
                                                 }));
                                             } else if (hasSource) {
                                                 // Legacy single aggregation format
