@@ -1,21 +1,19 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, Download, Loader2, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, ZoomIn, ZoomOut, RotateCcw, X, Maximize2, Minimize2 } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
-import TemplatePreview from '@/components/invoice-template/TemplatePreview';
+import TemplatePreview from '../invoice-template/TemplatePreview';
 
-export default function InvoicePreviewPage() {
-  const router = useRouter();
+export default function InvoicePreviewPanel({ invoiceId, templateId, onClose, isFullScreen, onToggleFullScreen }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [previewData, setPreviewData] = useState(null);
-  const [zoom, setZoom] = useState(70);
-  const dataFetchedRef = useRef(false);
+  const [zoom, setZoom] = useState(65); // Default zoom slightly smaller for split view
   
   // For calculating scaled container size
   const containerRef = useRef(null);
+  const panelRef = useRef(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -36,20 +34,15 @@ export default function InvoicePreviewPage() {
   }, [previewData]);
 
   useEffect(() => {
-    if (dataFetchedRef.current) return;
-    dataFetchedRef.current = true;
-    
-    loadPreviewData();
-  }, []);
+    if (invoiceId && templateId) {
+      loadPreviewData();
+    }
+  }, [invoiceId, templateId]);
 
   const loadPreviewData = async () => {
     try {
-      const invoiceId = sessionStorage.getItem('previewInvoiceId');
-      const templateId = sessionStorage.getItem('previewTemplateId');
-
-      if (!invoiceId || !templateId) {
-        throw new Error('Missing invoice or template information. Please try again.');
-      }
+      setLoading(true);
+      setError(null);
 
       // Fetch template and invoice data in parallel
       const [templateRes, invoiceRes] = await Promise.all([
@@ -316,14 +309,14 @@ export default function InvoicePreviewPage() {
 
   const handleZoomIn = () => setZoom(prev => Math.min(prev + 10, 150));
   const handleZoomOut = () => setZoom(prev => Math.max(prev - 10, 50));
-  const handleResetZoom = () => setZoom(70);
+  const handleResetZoom = () => setZoom(65);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full bg-slate-100">
+      <div className="flex items-center justify-center h-full bg-slate-50 border border-slate-200 rounded-xl">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="animate-spin text-blue-600" size={40} />
-          <p className="text-slate-500 font-medium">Loading Preview...</p>
+          <Loader2 className="animate-spin text-blue-600" size={32} />
+          <p className="text-slate-500 font-medium text-sm">Loading Preview...</p>
         </div>
       </div>
     );
@@ -331,20 +324,20 @@ export default function InvoicePreviewPage() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full bg-slate-100">
-        <div className="bg-white p-8 rounded-xl shadow-sm border border-red-100 max-w-md text-center">
-          <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="flex items-center justify-center h-full bg-slate-50 border border-slate-200 rounded-xl">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-red-100 max-w-sm text-center">
+          <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-3 text-red-500">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
           </div>
-          <h3 className="text-lg font-bold text-slate-800 mb-2">Error Loading Preview</h3>
-          <p className="text-slate-500 mb-6">{error}</p>
+          <h3 className="text-base font-bold text-slate-800 mb-1">Error Loading Preview</h3>
+          <p className="text-slate-500 text-sm mb-4">{error}</p>
           <button
-            onClick={() => router.push('/invoices')}
-            className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium"
+            onClick={onClose}
+            className="px-3 py-1.5 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-800 transition-colors font-medium"
           >
-            Back to Invoices
+            Close
           </button>
         </div>
       </div>
@@ -354,74 +347,83 @@ export default function InvoicePreviewPage() {
   if (!previewData) return null;
 
   return (
-    <div className="h-full flex flex-col bg-slate-100 overflow-hidden">
+    <div ref={panelRef} className="h-full flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-lg">
       {/* Toolbar */}
-      <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shrink-0 print:hidden w-full overflow-x-auto">
-        <div className="flex items-center gap-4 shrink-0">
+      <div className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shrink-0 print:hidden w-full overflow-x-auto">
+        <div className="flex items-center gap-3 shrink-0">
           <button
-            onClick={() => router.push('/invoices')}
-            className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors font-medium"
+            onClick={onClose}
+            className="flex items-center gap-1.5 text-slate-600 hover:text-red-600 transition-colors font-medium text-sm"
           >
-            <ArrowLeft size={20} />
-            <span>Back</span>
+            <X size={16} />
+            <span>Close</span>
           </button>
-          <div className="h-6 w-px bg-slate-200" />
+          <div className="h-4 w-px bg-slate-200" />
           <div>
-            <h1 className="text-lg font-bold text-slate-800">{previewData.invoiceNumber}</h1>
-            <p className="text-sm text-slate-500">Template: {previewData.templateName}</p>
+            <h1 className="text-sm font-bold text-slate-800 truncate max-w-[150px]">{previewData.invoiceNumber}</h1>
+            <p className="text-xs text-slate-500 truncate max-w-[150px]">{previewData.templateName}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4 shrink-0 mr-0">
+        <div className="flex items-center gap-2 shrink-0 ml-4">
+          <button
+            onClick={onToggleFullScreen}
+            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+            title={isFullScreen ? "Exit Expand" : "Expand View"}
+          >
+            {isFullScreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+          </button>
+
           {/* Zoom Controls */}
-          <div className="flex items-center gap-0.5 bg-white border border-slate-200 shadow-sm rounded-md p-1">
+          <div className="flex items-center gap-0.5 bg-slate-50 border border-slate-200 rounded-md p-0.5">
             <button
               onClick={handleResetZoom}
-              className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors"
+              className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded transition-colors"
               title="Reset Zoom"
             >
-              <RotateCcw size={14} />
+              <RotateCcw size={12} />
             </button>
             <button
               onClick={handleZoomOut}
-              className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors"
+              className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded transition-colors"
               title="Zoom Out"
             >
-              <ZoomOut size={14} />
+              <ZoomOut size={12} />
             </button>
-            <span className="text-xs font-medium text-slate-600 min-w-[2.5rem] text-center">{zoom}%</span>
+            <span className="text-[10px] font-medium text-slate-600 min-w-[1.5rem] text-center">{zoom}%</span>
             <button
               onClick={handleZoomIn}
-              className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors"
+              className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded transition-colors"
               title="Zoom In"
             >
-              <ZoomIn size={14} />
+              <ZoomIn size={12} />
             </button>
           </div>
 
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 font-medium transition-colors shadow-sm whitespace-nowrap"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 font-medium transition-colors shadow-sm whitespace-nowrap"
           >
-            <Download size={16} />
+            <Download size={14} />
             <span>Download</span>
           </button>
         </div>
       </div>
 
       {/* Preview Container */}
-      <div className="flex-1 overflow-auto p-8 pb-6 flex flex-col items-center">
+      <div className="flex-1 overflow-auto bg-slate-100 p-4 flex">
         <div 
+          className="m-auto print:m-0"
           style={{
             width: containerSize.width > 0 ? containerSize.width * (zoom / 100) : 'auto',
             height: containerSize.height > 0 ? containerSize.height * (zoom / 100) : 'auto',
             transition: 'width 0.2s, height 0.2s',
-            flexShrink: 0 // Prevent crushing
+            flexShrink: 0 
           }}
         >
           <div
             ref={containerRef}
-            className="shadow-2xl print:shadow-none bg-white transition-transform origin-top-left"
+            className="shadow-xl print:shadow-none bg-white transition-transform origin-top-left"
             style={{ transform: `scale(${zoom / 100})`, width: 'fit-content' }}
           >
             <TemplatePreview
@@ -431,20 +433,6 @@ export default function InvoicePreviewPage() {
           </div>
         </div>
       </div>
-
-      <style jsx global>{`
-        @media print {
-          body {
-            background: white;
-          }
-          .print\\:hidden {
-            display: none !important;
-          }
-          .print\\:shadow-none {
-            box-shadow: none !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

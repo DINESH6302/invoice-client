@@ -17,6 +17,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import InvoiceTemplateBuilder from "@/components/invoice-template/InvoiceTemplateBuilder";
 import { apiFetch } from "@/lib/api";
+import { formatDate } from "@/lib/utils";
 
 export default function TemplatesPage() {
   const router = useRouter();
@@ -153,14 +154,7 @@ export default function TemplatesPage() {
     }
   };
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return "Unknown";
-    return new Date(timestamp).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
+
 
   const handleEdit = (id) => {
     if (typeof window !== 'undefined') {

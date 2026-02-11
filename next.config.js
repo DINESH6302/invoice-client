@@ -13,8 +13,8 @@ const nextConfig = {
     async rewrites() {
       return [
         {
-          source: '/v1/:path*',
-          destination: 'http://127.0.0.1:9090/v1/:path*',
+          source: '/api/v1/:path*',
+          destination: 'http://127.0.0.1:9090/api/v1/:path*',
         },
       ]
     },

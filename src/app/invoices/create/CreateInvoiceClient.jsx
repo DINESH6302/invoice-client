@@ -116,7 +116,7 @@ export default function CreateInvoiceClient() {
           }
 
           if (fetchId) {
-             const invRes = await apiFetch(`/v1/invoices/${fetchId}`);
+             const invRes = await apiFetch(`api/v1/invoices/${fetchId}`);
              if (invRes.ok) {
                  const json = await invRes.json();
                  invoiceToLoad = json.data || json;
@@ -369,7 +369,7 @@ export default function CreateInvoiceClient() {
     }
 
     try {
-      const res = await apiFetch(`/v1/customers/${customerId}`);
+      const res = await apiFetch(`api/v1/customers/${customerId}`);
       if (res.ok) {
         const json = await res.json();
         const details = json.data;
@@ -585,7 +585,7 @@ export default function CreateInvoiceClient() {
     });
   };
 
-  const handleSave = async () => {
+  const handleSave = async (targetStatus) => {
     // Construct payload
     const payload = {
       template_id: loadedTemplateId,
@@ -674,18 +674,22 @@ export default function CreateInvoiceClient() {
         });
     }
 
+    if (typeof targetStatus === 'string') {
+        payload.invoice_status = targetStatus;
+    }
+
     try {
       setIsSaving(true);
       let res;
       
       if (editingInvoiceId) {
-          res = await apiFetch(`/v1/invoices/${editingInvoiceId}`, {
+          res = await apiFetch(`api/v1/invoices/${editingInvoiceId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
       } else {
-          res = await apiFetch("/v1/invoices", {
+          res = await apiFetch("api/v1/invoices", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -758,19 +762,27 @@ export default function CreateInvoiceClient() {
         
         <div className="flex items-center gap-2.5">
             <button
-                onClick={handleSave}
+                onClick={() => handleSave('DRAFT')}
                 disabled={isSaving}
-                className="flex items-center gap-1.5 px-[14px] py-[7px] text-[13px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-600 hover:text-white rounded-md transition-colors shadow-sm border border-blue-100 hover:border-blue-600 disabled:opacity-50"
+                className="flex items-center gap-1.5 px-[14px] py-[7px] text-[13px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-600 hover:text-white rounded-md transition-colors shadow-sm border border-slate-400 hover:border-slate-600 disabled:opacity-50"
             >
                 {isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                {editingInvoiceId ? "Update Invoice" : "Save Invoice"}
+                Save Draft
+            </button>
+            <button
+                onClick={() => handleSave('GENERATED')}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-[14px] py-[7px] text-[13px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm border border-transparent disabled:opacity-50"
+            >
+                {isSaving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
+                Save
             </button>
             <button 
                 onClick={() => router.back()}
-                className="flex items-center gap-1.5 px-[14px] py-[7px] text-[13px] font-medium text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded-md transition-colors shadow-sm border border-red-100 hover:border-red-600"
+                className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                title="Close"
             >
-                <X size={16} />
-                Close
+                <X size={20} />
             </button>
         </div>
       </div>

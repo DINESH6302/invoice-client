@@ -14,6 +14,7 @@ export default function AppLayout({ children }) {
   const isTemplateDetail = pathname.startsWith('/templates/') && pathname !== '/templates';
   const isPreviewPage = pathname === '/invoices/preview';
   const isCreateInvoicePage = pathname === '/invoices/create';
+  const isEditInvoicePage = pathname.startsWith('/invoices/edit');
   
   // FullScreen: No Sidebar, No Header (Template Editor, Auth, New Org)
   // Note: Preview Page is NOT FullScreen (has Sidebar), but NO Header.
@@ -27,7 +28,7 @@ export default function AppLayout({ children }) {
       return <main className="min-h-screen w-full bg-slate-50 text-slate-900">{children}</main>;
   }
 
-  const showHeader = !isPreviewPage && !isCreateInvoicePage;
+  const showHeader = !isPreviewPage && !isCreateInvoicePage && !isEditInvoicePage;
 
   return (
     <div className="h-screen overflow-hidden">

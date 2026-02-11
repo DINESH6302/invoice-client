@@ -1,5 +1,6 @@
 import React from 'react';
 import { ToWords } from 'to-words';
+import { formatDate } from '@/lib/utils';
 
 const toWords = new ToWords({
   localeCode: 'en-IN',
@@ -37,6 +38,13 @@ export default function TemplatePreview({ template, renderData }) {
       }
       
       return fallback;
+  };
+
+  const formatIfDate = (field, val) => {
+      if (val && (field.label?.toLowerCase().includes('date') || field.type === 'date')) {
+         return formatDate(val);
+      }
+      return val;
   };
 
   // We are using `box-sizing: border-box`. 
@@ -273,7 +281,8 @@ export default function TemplatePreview({ template, renderData }) {
                                      field.label === 'GSTIN' ? '33AAAAA0000A1Z5' : 
                                      'Custom Value';
                     
-                    const value = getFieldValue('header', field.key, fallback);
+                    const rawValue = getFieldValue('header', field.key, fallback);
+                    const value = formatIfDate(field, rawValue);
                     
                     // Specific formatting for GSTIN or labeled fields if needed, 
                     // but usually the value is just the value.
@@ -306,7 +315,7 @@ export default function TemplatePreview({ template, renderData }) {
                     <div key={field.key} className="flex justify-end gap-4">
                         <span className="font-semibold text-slate-700">{field.label}:</span> 
                         <span className="text-slate-900 font-medium">
-                            {getFieldValue('header', field.key, field.label === 'Date' ? '12 Oct 2026' : 'INV-#00912')}
+                            {formatIfDate(field, getFieldValue('header', field.key, field.label === 'Date' ? '2026-10-12' : 'INV-#00912'))}
                         </span>
                     </div>
                ))}
@@ -333,7 +342,7 @@ export default function TemplatePreview({ template, renderData }) {
                     {field.label}{isRow ? ':' : ''}
                 </span> 
                 <span className="text-slate-900 font-medium">
-                     {getFieldValue('header', field.key, 'Custom Val')}
+                     {formatIfDate(field, getFieldValue('header', field.key, 'Custom Val'))}
                 </span>
             </div>
            )})}
@@ -356,9 +365,7 @@ export default function TemplatePreview({ template, renderData }) {
                                field.label === 'Address' ? '45, North Street, Main Road\nChennai, Tamil Nadu - 600028' : 
                                field.label;
               
-              const val = getFieldValue('billTo', field.key, fallback);
-              
-              // if (field.label === 'State' && !renderData) return null;
+              const val = formatIfDate(field, getFieldValue('billTo', field.key, fallback));
 
               if (field.label === 'Name') {
                   return (
@@ -399,12 +406,9 @@ export default function TemplatePreview({ template, renderData }) {
                                field.label === 'Address' ? 'Warehouse No. 9\nKanchipuram, Tamil Nadu' : 
                                field.label;
               
-              const val = getFieldValue('shipTo', field.key, fallback);
-
-              // if (field.label === 'State' && !renderData) return null;
-
+              const val = formatIfDate(field, getFieldValue('shipTo', field.key, fallback));
+              
               if (field.label === 'Name') {
-                  
                   return (
                       <div key={field.key} className={`flex ${isRow ? 'flex-row gap-2 items-baseline' : 'flex-col'} mb-1`}>
                          {showLabel && (
@@ -414,7 +418,7 @@ export default function TemplatePreview({ template, renderData }) {
                          )}
                          <div className="font-bold text-slate-900">{val}</div>
                       </div>
-                  )
+                  );
               }
 
               return (

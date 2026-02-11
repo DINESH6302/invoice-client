@@ -2,7 +2,7 @@ import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth'
 
 // Define API Base URL
 // Can be overridden with environment variable, defaults to localhost:9090 
-export const API_BASE_URL = 'http://localhost:9090/v1';
+export const API_BASE_URL = 'http://localhost:9090/api/v1';
 
 export const refreshSession = async () => {
     const refreshToken = getRefreshToken();
@@ -55,9 +55,9 @@ export const apiFetch = async (endpoint, options = {}) => {
   if (!endpoint.startsWith('http')) {
       const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       // Allow passing partial paths like '/auth/login' which get appended to base
-      // OR if we passed '/v1/...' and Base also has '/v1', we need to be careful
+      // OR if we passed 'api/v1/...' and Base also has '/v1', we need to be careful
       // Simple strategy: If endpoint starts with /v1, and Base ends with /v1, strip one?
-      // Or just assume API_BASE_URL is 'http://localhost:9090' and we append '/v1/...'
+      // Or just assume API_BASE_URL is 'http://localhost:9090' and we append 'api/v1/...'
       
       // Current Decision: API_BASE_URL includes '/v1'. 
       // If endpoint also includes '/v1', we should likely act accordingly, 
@@ -66,7 +66,7 @@ export const apiFetch = async (endpoint, options = {}) => {
       // Remove leading slash from endpoint if present to join cleanly, or let URL constructor handle it?
       // Let's keep it simple: Replace /v1 prefix if it exists in endpoint to avoid duplication if API_BASE_URL has it.
       
-      const cleanPath = path.replace(/^\/v1/, '');
+      const cleanPath = path.replace('/api/v1/', '');
       url = `${API_BASE_URL}${cleanPath}`;
   }
 

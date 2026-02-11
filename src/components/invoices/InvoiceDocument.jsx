@@ -1,5 +1,6 @@
 import React from 'react';
 import { ToWords } from 'to-words';
+import { formatDate } from '@/lib/utils';
 
 const toWords = new ToWords({
   localeCode: 'en-IN',
@@ -53,6 +54,13 @@ export default function InvoiceDocument({ template, data }) {
       }
 
       return fallback;
+  };
+
+  const formatIfDate = (field, val) => {
+      if (val && (field.label?.toLowerCase().includes('date') || field.type === 'date')) {
+         return formatDate(val);
+      }
+      return val;
   };
 
   // Determine rows to render: Real Data items or empty array
@@ -166,7 +174,7 @@ export default function InvoiceDocument({ template, data }) {
           <div className="space-y-1">
           {template.companyDetails.fields.filter(f => !f.key.includes('header_') || (f.label !== 'Invoice No' && f.label !== 'Date')).map(field => field.visible && (
              <div key={field.key} className={`${field.bold ? 'font-bold text-2xl text-slate-800 mb-2' : 'text-slate-600'}`}>
-               {getFieldValue('header', field.key, '--')}
+               {formatIfDate(field, getFieldValue('header', field.key, '--'))}
              </div>
           ))}
           </div>
@@ -184,7 +192,7 @@ export default function InvoiceDocument({ template, data }) {
                     <div key={field.key} className="flex justify-end gap-4">
                         <span className="font-semibold text-slate-700">{field.label}:</span> 
                         <span className="text-slate-900 font-medium">
-                            {getFieldValue('header', field.key, '--')}
+                            {formatIfDate(field, getFieldValue('header', field.key, '--'))}
                         </span>
                     </div>
                ))}
@@ -210,7 +218,7 @@ export default function InvoiceDocument({ template, data }) {
                     {field.label}{isRow ? ':' : ''}
                 </span> 
                 <span className="text-slate-900 font-medium text-base">
-                     {getFieldValue('invoice_meta', field.key, '--')}
+                     {formatIfDate(field, getFieldValue('invoice_meta', field.key, '--'))}
                 </span>
             </div>
            )})}
@@ -238,6 +246,7 @@ export default function InvoiceDocument({ template, data }) {
                       if (f) val = f.value;
                   }
               }
+              val = formatIfDate(field, val);
 
               if (field.label === 'Name') {
                   return (
@@ -283,6 +292,7 @@ export default function InvoiceDocument({ template, data }) {
                       if (f) val = f.value;
                   }
               }
+              val = formatIfDate(field, val);
 
               if (field.label === 'Name') {
                   
