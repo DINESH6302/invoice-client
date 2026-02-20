@@ -96,33 +96,28 @@ export default function CreateInvoiceClient() {
   const loadInitialData = async () => {
     try {
       let activeTemplateId = templateId;
-      let invoiceToLoad = null;
       let isEditMode = false;
+      // editId comes from URL when navigating from invoice list (e.g. /invoices/edit?id=123)
+      let editId = searchParams.get("id"); 
+      let dupId = null;
 
-      // Check Session Storage for Edit/Duplicate
+      // Check Session Storage for Edit/Duplicate (Legacy/Alternative flow)
       if (typeof window !== 'undefined') {
-          const editId = sessionStorage.getItem('editInvoiceId');
-          const dupId = sessionStorage.getItem('duplicateInvoiceId');
+          const sessionEditId = sessionStorage.getItem('editInvoiceId');
+          dupId = sessionStorage.getItem('duplicateInvoiceId');
           
-          let fetchId = null;
+          if (sessionEditId) {
+             editId = sessionEditId; // Session storage takes precedence if present? Or maybe URL should? Let's check session first as legacy or current behavior, but honestly URL is better.
+             // Actually, let's allow URL to set editId if not already set.
+          }
+          
           if (editId) {
-             fetchId = editId;
              isEditMode = true;
              setEditingInvoiceId(editId);
-             sessionStorage.removeItem('editInvoiceId');
+             // Clear session if it was used
+             if (sessionEditId) sessionStorage.removeItem('editInvoiceId');
           } else if (dupId) {
-             fetchId = dupId;
              sessionStorage.removeItem('duplicateInvoiceId');
-          }
-
-          if (fetchId) {
-             const invRes = await apiFetch(`api/v1/invoices/${fetchId}`);
-             if (invRes.ok) {
-                 const json = await invRes.json();
-                 invoiceToLoad = json.data || json;
-                 if (invoiceToLoad.template_id) activeTemplateId = invoiceToLoad.template_id;
-                 if (invoiceToLoad.customer_id) setSelectedCustomerId(invoiceToLoad.customer_id);
-             }
           }
       }
       
@@ -130,6 +125,94 @@ export default function CreateInvoiceClient() {
       if (typeof window !== 'undefined' && sessionStorage.getItem('isDuplicate') === 'true') {
           isDuplicate = true;
           sessionStorage.removeItem('isDuplicate');
+      }
+
+      // --- EDIT MODE: only fetch template + invoice ---
+      if (isEditMode && editId) {
+        // First fetch the invoice to get its template_id
+        const invRes = await apiFetch(`/invoices/${editId}`);
+        if (!invRes.ok) throw new Error("Failed to load invoice");
+        const invJson = await invRes.json();
+        const invoiceToLoad = invJson.data || invJson;
+        
+        console.log("Loaded Invoice:", invoiceToLoad); // DEBUG log
+
+        if (invoiceToLoad.template_id) activeTemplateId = invoiceToLoad.template_id;
+        if (invoiceToLoad.customer_id) setSelectedCustomerId(invoiceToLoad.customer_id);
+
+        // If no template ID in invoice, fallback to URL param or fetched default
+        if (!activeTemplateId) {
+             console.error("Missing template_id in invoice:", invoiceToLoad);
+             
+             // If we have a URL param template_id, use that
+             if (templateId) {
+                 activeTemplateId = templateId;
+             } else {
+                 // Otherwise try to fetch default template
+                 try {
+                    const defRes = await apiFetch('/templates/default');
+                    if (defRes.ok) {
+                        const defJson = await defRes.json();
+                        const defData = defJson.data || defJson;
+                        activeTemplateId = defData.template_id || defData._id || defData.id;
+                    }
+                 } catch (e) {
+                    console.warn("Could not fetch default template as fallback", e);
+                 }
+             }
+        }
+        
+        if (!activeTemplateId) throw new Error("Invoice has no associated template and default template could not be loaded. Please select a template.");
+
+        // Fetch the template and customers in parallel
+        const [tplRes, custRes] = await Promise.all([
+          apiFetch(`/templates/${activeTemplateId}`),
+          apiFetch("/customers/summary"),
+        ]);
+
+        if (!tplRes.ok) throw new Error("Failed to load template");
+        const tplJson = await tplRes.json();
+        const tplData = tplJson.data || tplJson;
+        setTemplate(tplData);
+
+        const foundId = tplData.template_id || tplData._id || tplData.id || tplJson.template_id || (tplJson.data && tplJson.data.template_id);
+        setLoadedTemplateId(foundId || activeTemplateId);
+
+        if (custRes.ok) {
+          const custJson = await custRes.json();
+          setCustomerList(custJson.data || []);
+        }
+
+        // Initialize empty structure from template FIRST
+        // We pass null for orgData because on Edit we rely on the saved invoice data, not the org defaults
+        // Use a functional update to ensure we're working with the latest state if needed, 
+        // though initializeInvoiceData replaces state entirely so it doesn't matter much.
+        // Better: let initializeInvoiceData return the object, and we specifically set it or pass it.
+        // Current implementation of initializeInvoiceData calls setInvoiceData(initialData).
+        
+        // Let's modify the flow slightly to be more robust:
+        // 1. Initialize data object
+        // 2. Populate it with invoice data
+        // 3. Set state ONCE
+        
+        const initialData = getInitializedData(tplData, null); 
+        const populatedData = getPopulatedData(initialData, invoiceToLoad);
+        setInvoiceData(populatedData);
+        
+        setLoading(false);
+        return;
+      }
+
+      // --- CREATE / DUPLICATE MODE: fetch template, orgs, customers ---
+      let invoiceToLoad = null;
+      if (dupId) {
+        const invRes = await apiFetch(`/invoices/${dupId}`);
+        if (invRes.ok) {
+          const json = await invRes.json();
+          invoiceToLoad = json.data || json;
+          if (invoiceToLoad.template_id) activeTemplateId = invoiceToLoad.template_id;
+          if (invoiceToLoad.customer_id) setSelectedCustomerId(invoiceToLoad.customer_id);
+        }
       }
 
       const templateApiUrl = activeTemplateId
@@ -150,7 +233,6 @@ export default function CreateInvoiceClient() {
         tplData = json.data || json;
         setTemplate(tplData);
 
-        // Capture Template ID robustly
         const foundId =
           tplData.template_id ||
           tplData._id ||
@@ -172,7 +254,6 @@ export default function CreateInvoiceClient() {
 
       if (orgRes.ok) {
         const json = await orgRes.json();
-        // Handle both single object and array response (take first org)
         const rawData = json.data || json;
         orgData = Array.isArray(rawData) ? rawData[0] : rawData;
       }
@@ -183,65 +264,62 @@ export default function CreateInvoiceClient() {
       }
 
       if (tplData) {
-        initializeInvoiceData(tplData, orgData);
-        if (invoiceToLoad) {
-             // Use setTimeout to ensure populateInvoiceData state update has processed 
-             // or overwrite it completely since populate merges into prev.
-             // Actually, initializeInvoiceData does setInvoiceData(initialData).
-             // populateInvoiceData does setInvoiceData(prev => ...).
-             
-             populateInvoiceData(invoiceToLoad);
-        }
+        const initData = getInitializedData(tplData, orgData);
+        const finalData = invoiceToLoad ? getPopulatedData(initData, invoiceToLoad) : initData;
+        setInvoiceData(finalData);
       }
     } catch (err) {
       console.error("Error fetching data:", err);
-      setError("Network or Template error occurred");
+      setError(err.message || "Network or Template error occurred");
     } finally {
       setLoading(false);
     }
   };
 
+  const getPopulatedData = (prevData, inv) => {
+     const newData = { ...prevData, header: {...prevData.header}, meta: {...prevData.meta}, customer: { bill_to: {...prevData.customer.bill_to}, ship_to: {...prevData.customer.ship_to} }, footer: {...prevData.footer} };
+     
+     const fillConfig = (sourceFields, targetObj) => {
+         if (Array.isArray(sourceFields)) {
+             sourceFields.forEach(f => {
+                 targetObj[f.key] = f.value;
+             });
+         }
+     };
+
+     if (inv.header?.fields) fillConfig(inv.header.fields, newData.header);
+     if (inv.invoice_meta?.fields) fillConfig(inv.invoice_meta.fields, newData.meta);
+     
+     if (inv.customer_details) {
+         if (inv.customer_details.bill_to?.fields) fillConfig(inv.customer_details.bill_to.fields, newData.customer.bill_to);
+         if (inv.customer_details.ship_to?.fields) fillConfig(inv.customer_details.ship_to.fields, newData.customer.ship_to);
+     }
+
+     if (inv.items?.fields) {
+         newData.items = inv.items.fields.map(item => ({ ...item, id: Date.now() + Math.random() }));
+     }
+
+     if (inv.footer?.fields) fillConfig(inv.footer.fields, newData.footer);
+     
+     // Force overwrite Invoice No from top-level property if available
+     // This handles cases where backend duplicate logic updates the top-level column 
+     // but not the JSON blob field value.
+     if (inv.invoice_number && inv.header?.fields) {
+         const invNoField = inv.header.fields.find(f => (f.label || '').toLowerCase().includes("invoice no"));
+         if (invNoField) {
+             newData.header[invNoField.key] = inv.invoice_number;
+         }
+     }
+
+     return newData;
+  };
+  
+  // Kept for backward compatibility if used elsewhere (unlikely based on file search) but wraps new logic
   const populateInvoiceData = (inv) => {
-      setInvoiceData(prev => {
-         const newData = { ...prev };
-         
-         const fillConfig = (sourceFields, targetObj) => {
-             if (Array.isArray(sourceFields)) {
-                 sourceFields.forEach(f => {
-                     targetObj[f.key] = f.value;
-                 });
-             }
-         };
-
-         if (inv.header?.fields) fillConfig(inv.header.fields, newData.header);
-         if (inv.invoice_meta?.fields) fillConfig(inv.invoice_meta.fields, newData.meta);
-         
-         if (inv.customer_details) {
-             if (inv.customer_details.bill_to?.fields) fillConfig(inv.customer_details.bill_to.fields, newData.customer.bill_to);
-             if (inv.customer_details.ship_to?.fields) fillConfig(inv.customer_details.ship_to.fields, newData.customer.ship_to);
-         }
-
-         if (inv.items?.fields) {
-             newData.items = inv.items.fields.map(item => ({ ...item, id: Date.now() + Math.random() }));
-         }
-
-         if (inv.footer?.fields) fillConfig(inv.footer.fields, newData.footer);
-         
-         // Force overwrite Invoice No from top-level property if available
-         // This handles cases where backend duplicate logic updates the top-level column 
-         // but not the JSON blob field value.
-         if (inv.invoice_number && inv.header?.fields) {
-             const invNoField = inv.header.fields.find(f => (f.label || '').toLowerCase().includes("invoice no"));
-             if (invNoField) {
-                 newData.header[invNoField.key] = inv.invoice_number;
-             }
-         }
-
-         return newData;
-      });
+      setInvoiceData(prev => getPopulatedData(prev, inv));
   };
 
-  const initializeInvoiceData = (tmpl, orgData) => {
+  const getInitializedData = (tmpl, orgData) => {
     const initialData = {
       header: {},
       meta: {},
@@ -346,7 +424,11 @@ export default function CreateInvoiceClient() {
       });
     }
 
-    setInvoiceData(initialData);
+    return initialData;
+  };
+
+  const initializeInvoiceData = (tmpl, orgData) => {
+    setInvoiceData(getInitializedData(tmpl, orgData));
   };
 
   const handleCustomerSelect = async (customerId, targetSection = "ship_to") => {
@@ -585,6 +667,77 @@ export default function CreateInvoiceClient() {
     });
   };
 
+  // Build the template JSON enriched with value fields from form input data
+  const buildTemplatePayload = () => {
+    const payload = JSON.parse(JSON.stringify(template));
+
+    // Enrich fields with values from invoiceData
+    const enrichFields = (fields, dataObj) => {
+      if (!Array.isArray(fields)) return fields;
+      return fields.map((field) => ({
+        ...field,
+        value: dataObj[field.key] ?? "",
+      }));
+    };
+
+    if (payload.header?.fields) {
+      payload.header.fields = enrichFields(payload.header.fields, invoiceData.header);
+    }
+
+    if (payload.invoice_meta?.fields) {
+      payload.invoice_meta.fields = enrichFields(payload.invoice_meta.fields, invoiceData.meta);
+    }
+
+    if (payload.customer_details) {
+      if (payload.customer_details.bill_to?.fields) {
+        payload.customer_details.bill_to.fields = enrichFields(
+          payload.customer_details.bill_to.fields,
+          invoiceData.customer.bill_to,
+        );
+      }
+      if (payload.customer_details.ship_to?.fields) {
+        payload.customer_details.ship_to.fields = enrichFields(
+          payload.customer_details.ship_to.fields,
+          invoiceData.customer.ship_to,
+        );
+      }
+    }
+
+    if (payload.footer?.fields) {
+      payload.footer.fields = enrichFields(payload.footer.fields, invoiceData.footer);
+    }
+
+    // Items: merge column definitions with entered data
+    if (payload.items?.columns) {
+      payload.items.fields = invoiceData.items.map((item, idx) => {
+        const row = {};
+        payload.items.columns.forEach((col) => {
+          row[col.key] = item[col.key] ?? "";
+        });
+        // Keep serial number
+        row.sno = idx + 1;
+        return row;
+      });
+    }
+
+    // Summary/Total with calculated values
+    const summarySectionFields = payload.total?.fields || payload.summary?.fields;
+    if (summarySectionFields) {
+      const enrichedSummary = summarySectionFields.map((field) => ({
+        ...field,
+        value: calculateSummaryValue(field),
+      }));
+      if (payload.total?.fields) payload.total.fields = enrichedSummary;
+      if (payload.summary?.fields) payload.summary.fields = enrichedSummary;
+    }
+
+    // Attach identifiers
+    payload.template_id = loadedTemplateId;
+    payload.customer_id = selectedCustomerId;
+
+    return payload;
+  };
+
   const handleSave = async (targetStatus) => {
     // Construct payload
     const payload = {
@@ -681,8 +834,19 @@ export default function CreateInvoiceClient() {
     try {
       setIsSaving(true);
       let res;
-      
-      if (editingInvoiceId) {
+
+      if (targetStatus === 'GENERATED') {
+        // Call POST /invoices/generate with the full template JSON enriched with values
+        const generatePayload = buildTemplatePayload();
+        generatePayload.invoice_status = targetStatus;
+        console.log("Generate Invoice Payload:", generatePayload);
+
+        res = await apiFetch("/invoices/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(generatePayload),
+        });
+      } else if (editingInvoiceId) {
           res = await apiFetch(`api/v1/invoices/${editingInvoiceId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
