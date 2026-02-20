@@ -2,7 +2,7 @@ import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth'
 
 // Define API Base URL
 // Can be overridden with environment variable, defaults to localhost:9090 
-export const API_BASE_URL = 'http://localhost:9090/api/v1';
+export const API_BASE_URL = '/api/v1';
 
 export const refreshSession = async () => {
     const refreshToken = getRefreshToken();
